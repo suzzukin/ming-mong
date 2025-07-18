@@ -53,47 +53,6 @@ if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; th
     exit 1
 fi
 
-echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
-echo -e "${GREEN}Port: $PORT${NC}"
-echo -e "${YELLOW}Note: This script will automatically stop any processes using port $PORT${NC}"
-
-# Check and free the port if needed
-echo -e "${YELLOW}Checking if port $PORT is available...${NC}"
-if ! free_port $PORT; then
-    echo -e "${RED}Failed to free port $PORT. Please check manually.${NC}"
-    exit 1
-fi
-
-# Cleanup function
-cleanup() {
-    if [ -d "$TEMP_DIR" ]; then
-        rm -rf "$TEMP_DIR"
-    fi
-}
-
-# Set trap for cleanup
-trap cleanup EXIT
-
-# Function to check if docker works (with or without sudo)
-check_docker() {
-    if docker info &> /dev/null; then
-        echo "docker"
-    elif sudo docker info &> /dev/null; then
-        echo "sudo docker"
-    else
-        echo "none"
-    fi
-}
-
-# Function to run docker command (with sudo if needed)
-run_docker() {
-    if [[ "$DOCKER_CMD" == "sudo docker" ]]; then
-        sudo docker "$@"
-    else
-        docker "$@"
-    fi
-}
-
 # Function to free up a port by killing processes using it
 free_port() {
     local port=$1
@@ -167,6 +126,47 @@ free_port() {
     echo -e "${GREEN}✓ Port $port is now free${NC}"
     return 0
 }
+
+# Cleanup function
+cleanup() {
+    if [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+}
+
+# Set trap for cleanup
+trap cleanup EXIT
+
+# Function to check if docker works (with or without sudo)
+check_docker() {
+    if docker info &> /dev/null; then
+        echo "docker"
+    elif sudo docker info &> /dev/null; then
+        echo "sudo docker"
+    else
+        echo "none"
+    fi
+}
+
+# Function to run docker command (with sudo if needed)
+run_docker() {
+    if [[ "$DOCKER_CMD" == "sudo docker" ]]; then
+        sudo docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
+echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
+echo -e "${GREEN}Port: $PORT${NC}"
+echo -e "${YELLOW}Note: This script will automatically stop any processes using port $PORT${NC}"
+
+# Check and free the port if needed
+echo -e "${YELLOW}Checking if port $PORT is available...${NC}"
+if ! free_port $PORT; then
+    echo -e "${RED}Failed to free port $PORT. Please check manually.${NC}"
+    exit 1
+fi
 
 # Function to detect OS
 detect_os() {
