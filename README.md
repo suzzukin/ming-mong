@@ -1,358 +1,237 @@
-# Ming-Mong Server
+# 🚀 Ming-Mong WebSocket Server
 
-A lightweight HTTP server written in Go with SHA256 hash-based authentication for secure ping endpoints. Designed for system monitoring and health checks with date-based signature verification.
+A minimal WebSocket server with **stealth mode** and **signature-based authentication** (no secret keys required).
 
-## Features
+## 🔒 Security Features
 
-- **Simple Hash-Based Authentication**
-  - Secure request validation using time-based signatures
-  - Date-based signature generation (UTC)
-  - No secret keys required - uses simple algorithm
+- **No secret keys** - Authentication uses SHA256 hash of date + server name
+- **Stealth mode** - Unknown endpoints cause immediate connection drops (server appears offline)
+- **Signature validation** - Only valid signatures get responses
+- **CORS-free** - WebSocket bypasses browser CORS restrictions
+- **Timezone tolerance** - Accepts signatures for current and previous day
 
-- **RESTful API**
-  - Simple `/ping` endpoint for health checks
-  - JSON response format
-  - CORS support for web applications
-  - Browser-compatible JavaScript API
-
-- **Docker Support**
-  - Multi-stage Docker build for optimized images
-  - Alpine Linux base for minimal footprint
-  - Non-root user execution for security
-
-- **Easy Deployment**
-  - Automatic installation script
-  - Cross-platform support (Linux, macOS, Windows)
-  - Configurable port selection
-  - Systemd integration ready
-  - Auto-restart capabilities
-
-- **Maximum Security**
-  - Stealth mode: Invalid requests cause connection drop
-  - Unknown endpoints also cause connection drop (no 404 errors)
-  - **No signature endpoint**: Clients must generate signatures locally
-  - Server appears completely offline to unauthorized clients
-  - No information disclosure to attackers or scanners
-  - Immune to endpoint discovery and vulnerability scanning
-  - Complete algorithm secrecy - no way to discover signature method
-
-## Requirements
-
-- Docker (automatically installed if not present)
-- Bash shell
-- Internet connection
-
-## Installation
-
-### Quick Install
+## 🏗️ Quick Install
 
 ```bash
-# Install on default port (8080)
-curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash
-
-# Install on custom port
-curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- -p 3000
-
-# Download and run with port selection
-curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh -o install.sh
-chmod +x install.sh
-./install.sh -p 9000
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash
 ```
 
-**Or manually:**
-
+Or with custom port:
 ```bash
-# Clone the repository
-git clone https://github.com/suzzukin/ming-mong.git
-cd ming-mong
-
-# Install with default port (8080)
-chmod +x install.sh
-./install.sh
-
-# Install with custom port
-./install.sh -p 3000
-
-# Interactive mode (asks for port)
-./install.sh
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- -p 9090
 ```
 
-The script will automatically:
-- Detect your operating system
-- Install Docker if not present
-- Start Docker daemon if not running
-- Ask for port if not specified
-- Build the Docker image
-- Run the container on specified port
-- Configure automatic restart
+## 📋 WebSocket Protocol
 
-### Manual Installation
-
-1. **Install Docker** (if not already installed):
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get update
-   sudo apt-get install -y docker.io
-
-   # CentOS/RHEL
-   sudo yum install -y docker
-
-   # macOS
-   brew install --cask docker
-   ```
-
-2. **Clone and build**:
-   ```bash
-   git clone https://github.com/suzzukin/ming-mong.git
-   cd ming-mong
-   docker build -t ming-mong .
-   ```
-
-3. **Run container**:
-   ```bash
-   # Default port (8080)
-   docker run -d \
-     --name ming-mong-server \
-     -p 8080:8080 \
-     -e PORT=8080 \
-     --restart unless-stopped \
-     ming-mong
-
-   # Custom port (3000)
-   docker run -d \
-     --name ming-mong-server \
-     -p 3000:3000 \
-     -e PORT=3000 \
-     --restart unless-stopped \
-     ming-mong
-   ```
-
-## Uninstallation
-
-### Quick Uninstall
-
-```bash
-# Download and run the uninstallation script
-curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/uninstall.sh | bash
+### Endpoint
+```
+ws://your-server-ip:8080/ws
 ```
 
-**Or manually:**
+**Note:** Replace `your-server-ip` with your actual server IP address (e.g., `192.168.1.100` or `localhost` for local testing)
 
-```bash
-# Make the script executable and run
-chmod +x uninstall.sh
-./uninstall.sh
-```
-
-### Manual Uninstallation
-
-1. **Stop and remove container**:
-   ```bash
-   docker stop ming-mong-server
-   docker rm ming-mong-server
-   ```
-
-2. **Remove image**:
-   ```bash
-   docker rmi ming-mong
-   ```
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | `8080` |
-| `ALGORITHM_CONSTANT` | String constant for signature algorithm | `ming-mong-server` |
-
-### Changing Configuration
-
-**Port configuration:**
-```bash
-# Via installation script
-./install.sh -p 3000
-
-# Via environment variable
-docker run -e PORT=3000 -p 3000:3000 ming-mong
-
-# Via command line argument
-./install.sh --port 9000
-```
-
-**Algorithm configuration:**
-To modify the signature algorithm, edit the `generateSignature` function in `main.go`:
-
-```go
-// Current algorithm: SHA256(date + "ming-mong-server")[:16]
-data := date + "ming-mong-server"  // Change this constant
-```
-
-## API Usage
-
-### Endpoints
-
-- **GET `/ping`** - Health check endpoint (requires authentication)
-- **OPTIONS `/ping`** - CORS preflight request (handled automatically by browsers)
-- **All other paths** - Connection closed immediately (stealth mode)
-
-### Authentication
-
-All requests to `/ping` require a valid SHA256 signature in the `X-Ping-Signature` header.
-
-### Generating Signature
-
-The signature is based on a simple algorithm: `SHA256(date + "ming-mong-server")[:16]`
-
-```bash
-# Generate signature manually
-DATE=$(date -u +"%Y-%m-%d")
-SIGNATURE=$(echo -n "${DATE}ming-mong-server" | sha256sum | cut -c1-16)
-```
-
-### Making Requests
-
-**From command line:**
-```bash
-# Health check request (replace 8080 with your port)
-curl -H "X-Ping-Signature: $SIGNATURE" http://localhost:8080/ping
-```
-
-**From JavaScript (browser):**
-```javascript
-// Generate signature locally (no server request needed)
-async function generateSignature() {
-    const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const data = date + 'ming-mong-server';
-
-    // Use crypto.subtle for SHA256
-    const encoder = new TextEncoder();
-    const dataBuffer = encoder.encode(data);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-    return hashHex.substring(0, 16); // First 16 characters
+### Request Format
+```json
+{
+  "type": "ping",
+  "signature": "a1b2c3d4e5f6g7h8",
+  "timestamp": "2024-01-15T10:30:45Z"
 }
-
-// Make ping request
-async function ping() {
-    try {
-        const signature = await generateSignature();
-        const response = await fetch('http://localhost:8080/ping', {
-            method: 'GET',
-            headers: {
-                'X-Ping-Signature': signature
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            console.log('Server status:', data.status);
-            return data;
-        } else {
-            console.error('Request failed:', response.status);
-        }
-    } catch (error) {
-        console.error('Network error (connection closed by server):', error);
-        // This typically means invalid signature - server closed connection
-    }
-}
-
-// Example usage
-ping().then(result => {
-    console.log('Ping result:', result);
-});
 ```
 
-**From Node.js:**
-```javascript
-const crypto = require('crypto');
+### Response Format
 
-// Generate signature
+**Success:**
+```json
+{
+  "type": "pong",
+  "status": "ok",
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "server_time": "2024-01-15T10:30:45.123Z"
+}
+```
+
+**Error:**
+```json
+{
+  "type": "error",
+  "error": "invalid_signature",
+  "timestamp": "2024-01-15T10:30:45.123Z"
+}
+```
+
+## 🔐 Signature Algorithm
+
+The signature is generated using this algorithm:
+```
+SHA256(date + "ming-mong-server")[:16]
+```
+
+Where:
+- `date` is in UTC format: `YYYY-MM-DD` (e.g., "2024-01-15")
+- Result is truncated to first 16 characters
+
+## 💻 Client Examples
+
+### JavaScript (Browser)
+```javascript
 function generateSignature() {
     const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const data = date + 'ming-mong-server';
-    const hash = crypto.createHash('sha256').update(data).digest('hex');
-    return hash.substring(0, 16);
+    
+    // Using Web Crypto API
+    const encoder = new TextEncoder();
+    return crypto.subtle.digest('SHA-256', encoder.encode(data))
+        .then(hashBuffer => {
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            return hashHex.slice(0, 16);
+        });
 }
 
-// Make request with fetch or axios
 async function pingServer() {
-    const signature = generateSignature();
-
-    try {
-        const response = await fetch('http://localhost:8080/ping', {
-            method: 'GET',
-            headers: {
-                'X-Ping-Signature': signature
-            }
-        });
-
-        const data = await response.json();
-        console.log('Server response:', data);
-    } catch (error) {
-        console.error('Network error (connection closed by server):', error);
-        console.error('This typically means invalid signature');
+    // Check WebSocket support
+    if (!window.WebSocket) {
+        console.error('WebSocket not supported by this browser');
+        return;
     }
+    
+    const signature = await generateSignature();
+    const ws = new WebSocket('ws://your-server-ip:8080/ws');
+    
+    ws.onopen = () => {
+        console.log('WebSocket connected');
+        ws.send(JSON.stringify({
+            type: 'ping',
+            signature: signature,
+            timestamp: new Date().toISOString()
+        }));
+    };
+    
+    ws.onmessage = (event) => {
+        const response = JSON.parse(event.data);
+        console.log('Server response:', response);
+        
+        if (response.type === 'pong') {
+            console.log('✅ Ping successful!');
+        } else if (response.type === 'error') {
+            console.error('❌ Server error:', response.error);
+        }
+        
+        ws.close();
+    };
+    
+    ws.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+    };
+    
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
 }
 
 pingServer();
 ```
 
-**Python:**
-```python
-import hashlib
-from datetime import datetime, timezone
-import requests
+### Node.js
+```javascript
+const WebSocket = require('ws');
+const crypto = require('crypto');
 
-def generate_signature():
-    date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    data = date + 'ming-mong-server'
-    hash_object = hashlib.sha256(data.encode())
-    return hash_object.hexdigest()[:16]
-
-# Usage
-signature = generate_signature()
-response = requests.get('http://localhost:8080/ping',
-                       headers={'X-Ping-Signature': signature})
-print(f"Status: {response.status_code}")
-print(f"Response: {response.json()}")
-```
-
-**PHP:**
-```php
-<?php
 function generateSignature() {
-    $date = gmdate('Y-m-d');
-    $data = $date . 'ming-mong-server';
-    $hash = hash('sha256', $data);
-    return substr($hash, 0, 16);
+    const date = new Date().toISOString().split('T')[0];
+    const data = date + 'ming-mong-server';
+    return crypto.createHash('sha256').update(data).digest('hex').slice(0, 16);
 }
 
-// Usage
-$signature = generateSignature();
-$ch = curl_init();
-curl_setopt($ch, CURLOPT_URL, 'http://localhost:8080/ping');
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['X-Ping-Signature: ' . $signature]);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-$response = curl_exec($ch);
-curl_close($ch);
-echo $response;
-?>
+function pingServer() {
+    const ws = new WebSocket('ws://your-server-ip:8080/ws');
+    
+    ws.on('open', () => {
+        console.log('WebSocket connected');
+        ws.send(JSON.stringify({
+            type: 'ping',
+            signature: generateSignature(),
+            timestamp: new Date().toISOString()
+        }));
+    });
+    
+    ws.on('message', (data) => {
+        const response = JSON.parse(data);
+        console.log('Server response:', response);
+        
+        if (response.type === 'pong') {
+            console.log('✅ Ping successful!');
+        } else if (response.type === 'error') {
+            console.error('❌ Server error:', response.error);
+        }
+        
+        ws.close();
+    });
+    
+    ws.on('close', (code, reason) => {
+        console.log('WebSocket closed:', code, reason.toString());
+    });
+    
+    ws.on('error', (error) => {
+        console.error('WebSocket error:', error);
+    });
+}
+
+pingServer();
 ```
 
-**Go:**
+### Python
+```python
+import asyncio
+import websockets
+import json
+import hashlib
+from datetime import datetime
+
+def generate_signature():
+    date = datetime.utcnow().strftime('%Y-%m-%d')
+    data = date + 'ming-mong-server'
+    return hashlib.sha256(data.encode()).hexdigest()[:16]
+
+async def ping_server():
+    uri = "ws://your-server-ip:8080/ws"
+    
+    async with websockets.connect(uri) as websocket:
+        message = {
+            "type": "ping",
+            "signature": generate_signature(),
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+        
+        await websocket.send(json.dumps(message))
+        response = await websocket.recv()
+        
+        print("Server response:", json.loads(response))
+
+asyncio.run(ping_server())
+```
+
+### Go
 ```go
 package main
 
 import (
     "crypto/sha256"
     "encoding/hex"
+    "encoding/json"
     "fmt"
-    "net/http"
+    "log"
     "time"
+
+    "github.com/gorilla/websocket"
 )
+
+type PingMessage struct {
+    Type      string `json:"type"`
+    Signature string `json:"signature"`
+    Timestamp string `json:"timestamp"`
+}
 
 func generateSignature() string {
     date := time.Now().UTC().Format("2006-01-02")
@@ -362,343 +241,193 @@ func generateSignature() string {
 }
 
 func main() {
-    signature := generateSignature()
-
-    client := &http.Client{}
-    req, _ := http.NewRequest("GET", "http://localhost:8080/ping", nil)
-    req.Header.Set("X-Ping-Signature", signature)
-
-    resp, err := client.Do(req)
+    conn, _, err := websocket.DefaultDialer.Dial("ws://your-server-ip:8080/ws", nil)
     if err != nil {
-        fmt.Printf("Error: %v\n", err)
-        return
+        log.Fatal("dial:", err)
     }
-    defer resp.Body.Close()
+    defer conn.Close()
 
-    fmt.Printf("Status: %s\n", resp.Status)
+    message := PingMessage{
+        Type:      "ping",
+        Signature: generateSignature(),
+        Timestamp: time.Now().UTC().Format(time.RFC3339),
+    }
+
+    err = conn.WriteJSON(message)
+    if err != nil {
+        log.Fatal("write:", err)
+    }
+
+    var response map[string]interface{}
+    err = conn.ReadJSON(&response)
+    if err != nil {
+        log.Fatal("read:", err)
+    }
+
+    fmt.Printf("Server response: %+v\n", response)
 }
 ```
 
-**Successful `/ping` response:**
-```json
-{
-  "status": "ok"
+### PHP
+```php
+<?php
+require_once 'vendor/autoload.php';
+
+use Ratchet\Client\WebSocket;
+use Ratchet\Client\Connector;
+
+function generateSignature() {
+    $date = gmdate('Y-m-d');
+    $data = $date . 'ming-mong-server';
+    return substr(hash('sha256', $data), 0, 16);
 }
+
+$connector = new Connector();
+$connector('ws://your-server-ip:8080/ws')
+    ->then(function (WebSocket $conn) {
+        $message = json_encode([
+            'type' => 'ping',
+            'signature' => generateSignature(),
+            'timestamp' => gmdate('c')
+        ]);
+        
+        $conn->send($message);
+        
+        $conn->on('message', function ($msg) {
+            echo "Server response: " . $msg . "\n";
+        });
+    });
+?>
 ```
 
-**Signature generation example:**
-```javascript
-// Client-side signature generation
-const date = new Date().toISOString().split('T')[0]; // "2024-01-15"
-const signature = await generateSignature(date);     // "a1b2c3d4e5f6a7b8"
-```
-
-**Error responses:**
-- **Connection closed without response** - Invalid signature, wrong HTTP method, or missing signature header
-- **Connection closed without response** - Unknown/undefined endpoints (e.g., `/admin`, `/api`, `/robots.txt`)
-- Server appears completely unavailable to unauthorized clients and scanners
-
-**CORS Support:**
-- **OPTIONS `/ping`** - Returns proper CORS headers for browser compatibility
-- Browsers automatically send OPTIONS requests before custom header requests
-- No signature required for OPTIONS requests
-
-### Signature Validation
-
-- Accepts signatures for **current day** and **previous day** (UTC)
-- Helps with timezone differences and clock synchronization issues
-- All requests are logged with IP addresses for monitoring
-
-## Container Management
-
-### Check Service Status
-
+### Bash (with wscat)
 ```bash
-docker ps
-```
+#!/bin/bash
 
-### View Logs
+# Install wscat if not available
+# npm install -g wscat
 
-```bash
-docker logs ming-mong-server
-```
-
-### Stop Service
-
-```bash
-docker stop ming-mong-server
-```
-
-### Start Service
-
-```bash
-docker start ming-mong-server
-```
-
-### Restart Service
-
-```bash
-docker restart ming-mong-server
-```
-
-## Supported Operating Systems
-
-The installation script supports:
-- **Linux**: Debian/Ubuntu, Red Hat/CentOS/Fedora, Arch Linux
-- **macOS**: Automatic installation via Homebrew
-- **Windows**: Manual installation required (Docker Desktop)
-
-## Project Structure
-
-```
-.
-├── main.go          # Main server code
-├── go.mod           # Go module
-├── Dockerfile       # Docker configuration
-├── .dockerignore    # Docker ignore patterns
-├── install.sh       # Auto-installation script
-├── uninstall.sh     # Uninstallation script
-└── README.md        # Documentation
-```
-
-## Security Notes
-
-- The server uses SHA256 hash-based authentication (no secret keys required)
-- Signature algorithm: `SHA256(date + "ming-mong-server")[:16]`
-- Signature is based on current UTC date (YYYY-MM-DD format)
-- **Change the constant string in the algorithm for production use**
-- Container runs with non-root user for security
-- **Maximum stealth mode**: Invalid requests cause immediate connection drop (no response)
-- **Unknown endpoints**: All undefined paths (e.g., `/admin`, `/api`, `/robots.txt`) also cause connection drop
-- **No signature endpoint**: Clients must generate signatures locally (ultimate security)
-- **CORS preflight support**: OPTIONS requests handled for browser compatibility (no security risk)
-- Server appears completely unavailable to unauthorized clients and security scanners
-- Enhanced security through obscurity - attackers can't detect server existence
-- No information disclosure even for endpoint discovery attempts
-- **Complete algorithm secrecy**: No way for attackers to discover signature method
-- Simple algorithm provides basic protection without key management complexity
-- CORS headers enabled for browser compatibility (`Access-Control-Allow-Origin: *`)
-- Works with modern browsers supporting Web Crypto API
-
-## Development
-
-### Local Development
-
-```bash
-# Run without Docker (default port)
-go run main.go
-
-# Run with custom port
-PORT=3000 go run main.go
-
-# Build binary
-go build -o ming-mong
-
-# Run binary with custom port
-PORT=9000 ./ming-mong
-```
-
-### Quick Testing
-
-**Command line:**
-```bash
-# Test with current signature (replace 8080 with your port)
+# Generate signature
 DATE=$(date -u +"%Y-%m-%d")
+# Linux
 SIGNATURE=$(echo -n "${DATE}ming-mong-server" | sha256sum | cut -c1-16)
-curl -H "X-Ping-Signature: $SIGNATURE" http://localhost:8080/ping
+# macOS (uncomment if needed)
+# SIGNATURE=$(echo -n "${DATE}ming-mong-server" | shasum -a 256 | cut -c1-16)
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Test stealth mode (should close connection)
-curl http://localhost:8080/admin          # Connection closed
-curl http://localhost:8080/signature      # Connection closed (no longer exists)
-curl http://localhost:8080/nonexistent    # Connection closed
-curl -H "X-Ping-Signature: wrong" http://localhost:8080/ping  # Connection closed
+# Create message
+MESSAGE=$(cat <<EOF
+{
+  "type": "ping",
+  "signature": "$SIGNATURE",
+  "timestamp": "$TIMESTAMP"
+}
+EOF
+)
 
-# Test CORS preflight (should return 204 No Content)
-curl -X OPTIONS http://localhost:8080/ping  # Returns CORS headers
+# Send via wscat
+echo "$MESSAGE" | wscat -c ws://your-server-ip:8080/ws
 ```
 
-## Troubleshooting
+## 🚀 Testing
 
-### Container Not Starting
-
-Check logs:
+### Using wscat
 ```bash
-docker logs ming-mong-server
+# Install wscat
+npm install -g wscat
+
+# Connect and send message
+wscat -c ws://your-server-ip:8080/ws
+
+# Then send (replace with actual signature):
+{"type":"ping","signature":"a1b2c3d4e5f6g7h8","timestamp":"2024-01-15T10:30:45Z"}
 ```
 
-### Port Already in Use
-
-Change port in installation:
+### Generate Today's Signature
 ```bash
-./install.sh -p 8081  # Use different port
+DATE=$(date -u +"%Y-%m-%d")
+# Linux
+SIGNATURE=$(echo -n "${DATE}ming-mong-server" | sha256sum | cut -c1-16)
+# macOS
+# SIGNATURE=$(echo -n "${DATE}ming-mong-server" | shasum -a 256 | cut -c1-16)
+echo "Today's signature: $SIGNATURE"
 ```
 
-### Signature Validation Fails
+## 🔧 Configuration
 
-When signature is invalid, the server will close the connection without any response. This makes it appear as if the server is down.
+### Environment Variables
+- `PORT` - Server port (default: 8080)
 
-**Symptoms:**
-- `curl: (52) Empty reply from server`
-- `curl: (56) Recv failure: Connection reset by peer`
-- Browser shows "Failed to fetch" or "Network error"
-
-### Browser CSP (Content Security Policy) Issues
-
-When testing locally, you may encounter CSP errors:
-
-**Error message:**
-```
-Refused to connect to https://localhost:8080/ping because it does not appear in the connect-src directive
+### Docker
+```bash
+docker run -d -p 8080:8080 -e PORT=8080 ming-mong
 ```
 
-**This is normal browser security** - CSP blocks connections to localhost from web pages.
+## 🛡️ Security Levels
 
-### CORS Preflight Requests
+| Level | Features |
+|-------|----------|
+| **Basic** | WebSocket with signature validation |
+| **Stealth** | Unknown endpoints cause connection drops |
+| **Paranoid** | No signature generation endpoint |
 
-Modern browsers automatically send OPTIONS requests before custom headers:
+## 📝 Error Codes
 
-**What you might see in logs:**
-```
-2025/07/18 16:45:29 CORS preflight request from [::1]:55547
-2025/07/18 16:45:29 Valid ping request from [::1]:55547
-```
+| Error | Description |
+|-------|-------------|
+| `invalid_format` | Invalid JSON message format |
+| `invalid_type` | Message type is not "ping" |
+| `invalid_signature` | Signature validation failed |
 
-**This is normal behavior** - browsers send OPTIONS first, then your actual GET request.
+## 🔄 Behavior
 
-**Solutions for local testing:**
+- **Valid signature**: Returns `pong` response, closes connection
+- **Invalid signature**: Returns `error` response, closes connection  
+- **Unknown endpoint**: Immediate connection drop (stealth mode)
+- **Timeout**: 5 seconds read timeout
 
-1. **Use curl instead (recommended):**
-   ```bash
-   DATE=$(date -u +"%Y-%m-%d")
-   SIGNATURE=$(echo -n "${DATE}ming-mong-server" | sha256sum | cut -c1-16)
-   curl -H "X-Ping-Signature: $SIGNATURE" http://localhost:8080/ping
-   ```
-
-2. **Add CSP meta tag to your HTML:**
-   ```html
-   <meta http-equiv="Content-Security-Policy" content="connect-src 'self' localhost:8080 127.0.0.1:8080 http://localhost:8080">
-   ```
-
-3. **Test with real domain (production):**
-   ```javascript
-   // This will work on production without CSP issues
-   const response = await fetch('https://yourdomain.com:8080/ping', {
-       headers: { 'X-Ping-Signature': signature }
-   });
-   ```
-
-**Note:** On production servers with real domains, CSP issues don't occur.
-
-4. **If CSP still blocks (advanced):**
-   - Chrome: `--disable-web-security --user-data-dir="/tmp/chrome_dev"`
-   - Firefox: `about:config` → `security.csp.enable` → `false`
-   - Use a local web server: `python -m http.server 8000` and access via `http://localhost:8000/`
-
-**Solutions:**
-1. Check if signature is correct:
-   ```bash
-   # Generate signature manually
-   DATE=$(date -u +"%Y-%m-%d")
-   SIGNATURE=$(echo -n "${DATE}ming-mong-server" | sha256sum | cut -c1-16)
-   echo "Generated signature: $SIGNATURE"
-
-   # Test the signature
-   curl -H "X-Ping-Signature: $SIGNATURE" http://localhost:8080/ping
-   ```
-
-2. Ensure your system time is synchronized:
-   ```bash
-   # Linux
-   sudo ntpdate -s time.nist.gov
-
-   # macOS
-   sudo sntp -sS time.apple.com
-   ```
-
-3. Check server logs for connection drops:
-   ```bash
-   docker logs ming-mong-server
-   ```
-
-4. Make sure you're using the correct endpoint:
-   ```bash
-   # These endpoints exist:
-   curl -H "X-Ping-Signature: $SIGNATURE" http://localhost:8080/ping  # Requires signature
-   curl -X OPTIONS http://localhost:8080/ping                         # CORS preflight
-
-   # All other paths will close connection:
-   curl http://localhost:8080/admin      # Connection closed
-   curl http://localhost:8080/api        # Connection closed
-   curl http://localhost:8080/robots.txt # Connection closed
-   curl http://localhost:8080/signature  # Connection closed (no longer exists)
-   ```
-
-5. **If you see "invalid method: OPTIONS" in logs:**
-   ```bash
-   # This means the server handled CORS preflight correctly
-   # Your browser should work now - try the test.html file
-   ```
-
-### Security Scanner Behavior
-
-When security scanners (like Nmap, Nessus, or manual probes) try to discover your server:
+## 📚 Manual Installation
 
 ```bash
-# Common scanner attempts - all will fail silently:
-curl http://localhost:8080/admin          # Connection closed
-curl http://localhost:8080/wp-admin       # Connection closed
-curl http://localhost:8080/api/v1         # Connection closed
-curl http://localhost:8080/phpinfo.php    # Connection closed
-curl http://localhost:8080/.env           # Connection closed
-curl http://localhost:8080/robots.txt     # Connection closed
-curl http://localhost:8080/signature      # Connection closed (no longer exists)
+# Clone repository
+git clone https://github.com/suzzukin/ming-mong.git
+cd ming-mong
 
-# CORS preflight works (but reveals no sensitive information):
-curl -X OPTIONS http://localhost:8080/ping  # Returns CORS headers only
+# Build and run
+go mod tidy
+go build -o ming-mong
+./ming-mong
+
+# Or with Docker
+docker build -t ming-mong .
+docker run -d -p 8080:8080 ming-mong
 ```
 
-**Result:** Server appears completely offline to all unauthorized access attempts.
+## 🔧 Troubleshooting
 
-**Note:** OPTIONS requests to `/ping` return CORS headers but reveal no sensitive information about the signature algorithm or server functionality.
+### Connection Issues
+- Check firewall settings
+- Verify WebSocket URL format: `ws://` not `http://`
+- Ensure server is running on correct port
 
-## CORS and Security
+### Signature Issues
+- Verify date format is `YYYY-MM-DD` in UTC
+- Check signature algorithm implementation
+- Remember: signature is first 16 chars of SHA256 hash
 
-### What is CORS Preflight?
+### WebSocket Issues
+- Modern browsers support WebSockets natively
+- Use `ws://` for plain connections
+- Use `wss://` for secure connections (requires SSL/TLS)
+- Check browser console for detailed error messages
+- WebSocket errors are often network-related (firewall, proxy, etc.)
 
-When browsers make requests with custom headers (like `X-Ping-Signature`), they first send an OPTIONS request to check permissions. This is called a "preflight request."
+## 🗑️ Uninstall
 
-**Example browser behavior:**
+```bash
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/uninstall.sh | bash
 ```
-1. Browser sends: OPTIONS /ping
-2. Server responds: 204 No Content + CORS headers
-3. Browser sends: GET /ping with X-Ping-Signature header
-4. Server responds: {"status": "ok"}
-```
 
-### Security Impact
+---
 
-✅ **No security risk**: OPTIONS requests only return CORS headers
-✅ **No information disclosure**: Signature algorithm remains secret
-✅ **No endpoint enumeration**: Only `/ping` endpoint responds to OPTIONS
-✅ **Browser compatibility**: Modern browsers work seamlessly
-
-## Ultimate Security Benefits
-
-By removing the `/signature` endpoint, your server achieves **ultimate stealth mode**:
-
-✅ **No information disclosure**: Attackers cannot discover the signature algorithm
-✅ **No endpoint enumeration**: Only `/ping` exists, everything else is closed
-✅ **Client-side generation**: Signatures must be generated locally by authorized clients
-✅ **Algorithm secrecy**: No way to reverse-engineer the signature method
-✅ **Complete invisibility**: Server appears offline to all unauthorized access
-✅ **CORS compatibility**: OPTIONS requests supported without compromising security
-
-**Security Level Comparison:**
-- 🔶 **Level 1**: Standard server with error pages
-- 🔶 **Level 2**: Server with disabled error pages
-- 🔶 **Level 3**: Server with signature endpoint for development
-- 🔥 **Level 4**: **Your server** - Complete invisibility with client-side signatures
-
-## License
-
-MIT License - see LICENSE file for details
+**Note**: This server is designed for internal networks. For internet-facing deployments, consider using HTTPS/WSS with proper SSL certificates.
