@@ -233,17 +233,23 @@ get_external_ip() {
 install_certbot() {
     local os=$(detect_os)
     echo -e "${BLUE}Installing certbot for $os...${NC}"
-
+    
+    # Check if running as root
+    local use_sudo=""
+    if [ "$EUID" -ne 0 ] && [ "$os" != "macos" ]; then
+        use_sudo="sudo"
+    fi
+    
     case $os in
         "debian")
-            sudo apt-get update
-            sudo apt-get install -y certbot
+            $use_sudo apt-get update
+            $use_sudo apt-get install -y certbot
             ;;
         "redhat")
-            sudo yum install -y certbot
+            $use_sudo yum install -y certbot
             ;;
         "arch")
-            sudo pacman -Sy certbot
+            $use_sudo pacman -Sy certbot
             ;;
         "macos")
             if command -v brew &> /dev/null; then
@@ -258,15 +264,36 @@ install_certbot() {
             return 1
             ;;
     esac
+    
+    # Verify installation
+    if command -v certbot &> /dev/null; then
+        echo -e "${GREEN}✅ Certbot installed successfully${NC}"
+        return 0
+    else
+        echo -e "${RED}❌ Certbot installation failed${NC}"
+        return 1
+    fi
 }
 
 # Function to get Let's Encrypt certificate via nip.io
 get_letsencrypt_cert() {
     local domain="$1"
     local email="${2:-admin@$domain}"
-
+    
     echo -e "${BLUE}Getting Let's Encrypt certificate for $domain...${NC}"
-
+    
+    # Check if running as root
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${YELLOW}Certbot requires root privileges. Checking sudo...${NC}"
+        if ! sudo -n true 2>/dev/null; then
+            echo -e "${YELLOW}Please enter your password for sudo:${NC}"
+            sudo -v || {
+                echo -e "${RED}Failed to get sudo privileges${NC}"
+                return 1
+            }
+        fi
+    fi
+    
     # Check if certbot is installed
     if ! command -v certbot &> /dev/null; then
         echo -e "${YELLOW}Certbot not found, installing...${NC}"
@@ -275,20 +302,57 @@ get_letsencrypt_cert() {
             return 1
         fi
     fi
-
+    
     # Stop any service on port 80 temporarily
-    local port_80_process=""
+    local port_80_services=""
+    local port_80_pids=""
+    
+    echo -e "${BLUE}Checking port 80...${NC}"
     if lsof -i :80 &> /dev/null; then
-        echo -e "${YELLOW}Port 80 is occupied, attempting to free it temporarily...${NC}"
-        port_80_process=$(lsof -ti :80)
-        for pid in $port_80_process; do
-            kill -STOP $pid 2>/dev/null || true
+        echo -e "${YELLOW}Port 80 is occupied, stopping services temporarily...${NC}"
+        port_80_pids=$(lsof -ti :80)
+        
+        # First try graceful shutdown
+        for pid in $port_80_pids; do
+            if kill -TERM $pid 2>/dev/null; then
+                echo -e "${YELLOW}  Stopped process $pid${NC}"
+            fi
         done
+        
+        # Wait a bit for graceful shutdown
+        sleep 2
+        
+        # Force kill if still running
+        if lsof -i :80 &> /dev/null; then
+            port_80_pids=$(lsof -ti :80)
+            for pid in $port_80_pids; do
+                if kill -KILL $pid 2>/dev/null; then
+                    echo -e "${YELLOW}  Force killed process $pid${NC}"
+                fi
+            done
+        fi
+        
+        # Final check
+        if lsof -i :80 &> /dev/null; then
+            echo -e "${RED}Unable to free port 80. Please stop services manually:${NC}"
+            lsof -i :80
+            return 1
+        fi
+        
+        port_80_services="$port_80_pids"
     fi
-
-    # Get certificate using standalone mode
+    
+    # Get certificate using standalone mode with sudo
     local success=false
-    if certbot certonly --standalone --non-interactive --agree-tos --email "$email" -d "$domain" --preferred-challenges http; then
+    local certbot_cmd="certbot certonly --standalone --non-interactive --agree-tos --email '$email' -d '$domain' --preferred-challenges http"
+    
+    if [ "$EUID" -eq 0 ]; then
+        eval $certbot_cmd
+    else
+        sudo sh -c "$certbot_cmd"
+    fi
+    
+    if [ $? -eq 0 ]; then
         success=true
         echo -e "${GREEN}✅ Certificate obtained successfully for $domain${NC}"
     else
@@ -297,15 +361,14 @@ get_letsencrypt_cert() {
         echo -e "${YELLOW}1. Port 80 is not accessible from the internet${NC}"
         echo -e "${YELLOW}2. Firewall is blocking port 80${NC}"
         echo -e "${YELLOW}3. Domain $domain does not resolve to this server${NC}"
+        echo -e "${YELLOW}4. Rate limiting by Let's Encrypt${NC}"
+        
+        # Show debug info
+        echo -e "${YELLOW}Debug info:${NC}"
+        echo -e "${YELLOW}  External IP: $(get_external_ip)${NC}"
+        echo -e "${YELLOW}  Domain resolves to: $(nslookup $domain | grep -A1 'Name:' | tail -1 | awk '{print $2}' 2>/dev/null || echo 'unknown')${NC}"
     fi
-
-    # Restore stopped processes
-    if [ -n "$port_80_process" ]; then
-        for pid in $port_80_process; do
-            kill -CONT $pid 2>/dev/null || true
-        done
-    fi
-
+    
     if [ "$success" = true ]; then
         echo -e "${GREEN}Certificate files location:${NC}"
         echo -e "${GREEN}  Cert: /etc/letsencrypt/live/$domain/fullchain.pem${NC}"
@@ -350,6 +413,9 @@ echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
 echo -e "${GREEN}Port: $PORT${NC}"
 if [ "$AUTO_SSL" = "true" ]; then
     echo -e "${GREEN}TLS/SSL: Automatic Let's Encrypt via nip.io${NC}"
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${YELLOW}⚠️  Auto-SSL requires sudo privileges for certbot${NC}"
+    fi
 elif [ "$ENABLE_TLS" = "true" ]; then
     echo -e "${GREEN}TLS/SSL: Self-signed certificates${NC}"
 else

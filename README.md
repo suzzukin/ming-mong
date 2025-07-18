@@ -93,7 +93,7 @@ Where:
 function generateSignature() {
     const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const data = date + 'ming-mong-server';
-    
+
     // Using Web Crypto API
     const encoder = new TextEncoder();
     return crypto.subtle.digest('SHA-256', encoder.encode(data))
@@ -110,11 +110,11 @@ async function pingServer(useSSL = false) {
         console.error('WebSocket not supported by this browser');
         return;
     }
-    
+
     const signature = await generateSignature();
     const protocol = useSSL ? 'wss' : 'ws';
     const ws = new WebSocket(`${protocol}://your-server-ip:8080/ws`);
-    
+
     ws.onopen = () => {
         console.log(`WebSocket connected (${protocol.toUpperCase()})`);
         ws.send(JSON.stringify({
@@ -123,24 +123,24 @@ async function pingServer(useSSL = false) {
             timestamp: new Date().toISOString()
         }));
     };
-    
+
     ws.onmessage = (event) => {
         const response = JSON.parse(event.data);
         console.log('Server response:', response);
-        
+
         if (response.type === 'pong') {
             console.log('✅ Ping successful!');
         } else if (response.type === 'error') {
             console.error('❌ Server error:', response.error);
         }
-        
+
         ws.close();
     };
-    
+
     ws.onclose = (event) => {
         console.log('WebSocket closed:', event.code, event.reason);
     };
-    
+
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         if (useSSL) {
@@ -167,7 +167,7 @@ function generateSignature() {
 
 function pingServer() {
     const ws = new WebSocket('ws://your-server-ip:8080/ws');
-    
+
     ws.on('open', () => {
         console.log('WebSocket connected');
         ws.send(JSON.stringify({
@@ -176,24 +176,24 @@ function pingServer() {
             timestamp: new Date().toISOString()
         }));
     });
-    
+
     ws.on('message', (data) => {
         const response = JSON.parse(data);
         console.log('Server response:', response);
-        
+
         if (response.type === 'pong') {
             console.log('✅ Ping successful!');
         } else if (response.type === 'error') {
             console.error('❌ Server error:', response.error);
         }
-        
+
         ws.close();
     });
-    
+
     ws.on('close', (code, reason) => {
         console.log('WebSocket closed:', code, reason.toString());
     });
-    
+
     ws.on('error', (error) => {
         console.error('WebSocket error:', error);
     });
@@ -217,17 +217,17 @@ def generate_signature():
 
 async def ping_server():
     uri = "ws://your-server-ip:8080/ws"
-    
+
     async with websockets.connect(uri) as websocket:
         message = {
             "type": "ping",
             "signature": generate_signature(),
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
-        
+
         await websocket.send(json.dumps(message))
         response = await websocket.recv()
-        
+
         print("Server response:", json.loads(response))
 
 asyncio.run(ping_server())
@@ -311,9 +311,9 @@ $connector('ws://your-server-ip:8080/ws')
             'signature' => generateSignature(),
             'timestamp' => gmdate('c')
         ]);
-        
+
         $conn->send($message);
-        
+
         $conn->on('message', function ($msg) {
             echo "Server response: " . $msg . "\n";
         });
@@ -398,6 +398,11 @@ echo "Today's signature: $SIGNATURE"
 curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- --auto-ssl
 ```
 
+**Requirements:**
+- ⚠️ **Requires sudo privileges** for certbot and certificate management
+- 🌐 **Port 80 must be accessible** from the internet for Let's Encrypt validation
+- 🔒 **Port 443 recommended** for HTTPS (or use custom port)
+
 **What it does:**
 1. 🔍 Detects your server's external IP address
 2. 🌐 Creates domain: `YOUR_IP.nip.io` (automatically resolves to your IP)
@@ -408,7 +413,7 @@ curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh
 ```bash
 # Your server IP: 192.168.1.100
 # Domain: 192.168.1.100.nip.io
-# URLs: 
+# URLs:
 #   - https://192.168.1.100.nip.io/ping
 #   - wss://192.168.1.100.nip.io/ws
 ```
@@ -449,7 +454,7 @@ Use both HTTP and HTTPS endpoints:
 
 # Server will support both:
 # - http://192.168.1.100:8080/ping (HTTP)
-# - https://192.168.1.100:8080/ping (HTTPS)  
+# - https://192.168.1.100:8080/ping (HTTPS)
 # - ws://192.168.1.100:8080/ws (WebSocket)
 # - wss://192.168.1.100:8080/ws (Secure WebSocket)
 ```
@@ -538,7 +543,7 @@ docker run -d -p 8080:8080 \
 ## 🔄 Behavior
 
 - **Valid signature**: Returns `pong` response, closes connection
-- **Invalid signature**: Returns `error` response, closes connection  
+- **Invalid signature**: Returns `error` response, closes connection
 - **Unknown endpoint**: Immediate connection drop (stealth mode)
 - **Timeout**: 5 seconds read timeout
 
