@@ -55,6 +55,14 @@ fi
 
 echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
 echo -e "${GREEN}Port: $PORT${NC}"
+echo -e "${YELLOW}Note: This script will automatically stop any processes using port $PORT${NC}"
+
+# Check and free the port if needed
+echo -e "${YELLOW}Checking if port $PORT is available...${NC}"
+if ! free_port $PORT; then
+    echo -e "${RED}Failed to free port $PORT. Please check manually.${NC}"
+    exit 1
+fi
 
 # Cleanup function
 cleanup() {
@@ -84,6 +92,80 @@ run_docker() {
     else
         docker "$@"
     fi
+}
+
+# Function to free up a port by killing processes using it
+free_port() {
+    local port=$1
+    echo -e "${BLUE}Checking port $port...${NC}"
+
+    # Check if lsof is available
+    if ! command -v lsof &> /dev/null; then
+        echo -e "${YELLOW}lsof not found, cannot check port usage${NC}"
+        return 0
+    fi
+
+    # Find processes using the port
+    local pids=$(lsof -ti :$port 2>/dev/null)
+
+    if [ -z "$pids" ]; then
+        echo -e "${GREEN}✓ Port $port is free${NC}"
+        return 0
+    fi
+
+    echo -e "${YELLOW}Port $port is occupied by processes: $pids${NC}"
+
+    # Get process details
+    for pid in $pids; do
+        if ps -p $pid > /dev/null 2>&1; then
+            local process_info=$(ps -p $pid -o pid,comm,args --no-headers 2>/dev/null || ps -p $pid -o pid,comm 2>/dev/null)
+            echo -e "${YELLOW}  PID $pid: $process_info${NC}"
+
+            # Check if it's a Go process (like our server)
+            if ps -p $pid -o args --no-headers 2>/dev/null | grep -q "go run main.go\|main"; then
+                echo -e "${BLUE}    └─ This looks like a Go server process${NC}"
+            fi
+        fi
+    done
+
+    echo -e "${YELLOW}Attempting to free port $port...${NC}"
+
+    # Try graceful termination first
+    echo -e "${YELLOW}Step 1: Attempting graceful shutdown...${NC}"
+    for pid in $pids; do
+        if ps -p $pid > /dev/null 2>&1; then
+            echo -e "${YELLOW}  Sending TERM signal to PID $pid...${NC}"
+            kill -TERM $pid 2>/dev/null || true
+        fi
+    done
+
+    # Wait a moment for graceful shutdown
+    sleep 2
+
+    # Check if port is still occupied
+    local remaining_pids=$(lsof -ti :$port)
+
+        if [ -n "$remaining_pids" ]; then
+        echo -e "${YELLOW}Step 2: Processes still running, using force kill...${NC}"
+        for pid in $remaining_pids; do
+            if ps -p $pid > /dev/null 2>&1; then
+                echo -e "${YELLOW}  Sending KILL signal to PID $pid...${NC}"
+                kill -KILL $pid 2>/dev/null || true
+            fi
+        done
+
+        # Final check
+        sleep 1
+        if lsof -i :$port &> /dev/null; then
+            echo -e "${RED}Warning: Port $port may still be in use after force kill${NC}"
+            local final_pids=$(lsof -ti :$port)
+            echo -e "${RED}Remaining processes: $final_pids${NC}"
+            return 1
+        fi
+    fi
+
+    echo -e "${GREEN}✓ Port $port is now free${NC}"
+    return 0
 }
 
 # Function to detect OS
@@ -259,15 +341,15 @@ echo -e "${YELLOW}Checking for existing container...${NC}"
 # Stop and remove existing container if it exists
 if run_docker ps -a --format "table {{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
     echo -e "${YELLOW}Stopping existing container...${NC}"
-    run_docker stop $CONTAINER_NAME
+    run_docker stop $CONTAINER_NAME || echo -e "${YELLOW}Container was already stopped${NC}"
     echo -e "${YELLOW}Removing existing container...${NC}"
-    run_docker rm $CONTAINER_NAME
+    run_docker rm $CONTAINER_NAME || echo -e "${YELLOW}Container was already removed${NC}"
 fi
 
 # Remove existing image if it exists
 if run_docker images --format "table {{.Repository}}" | grep -q "^${IMAGE_NAME}$"; then
     echo -e "${YELLOW}Removing existing image...${NC}"
-    run_docker rmi $IMAGE_NAME
+    run_docker rmi $IMAGE_NAME || echo -e "${YELLOW}Image was already removed or in use${NC}"
 fi
 
 echo -e "${YELLOW}Building Docker image...${NC}"
@@ -277,10 +359,24 @@ if run_docker build -t $IMAGE_NAME .; then
     echo -e "${GREEN}Image built successfully!${NC}"
 else
     echo -e "${RED}Image build failed!${NC}"
+    echo -e "${RED}Please check the error messages above and try again.${NC}"
+    exit 1
+fi
+
+# Verify image was created
+if ! run_docker images --format "table {{.Repository}}" | grep -q "^${IMAGE_NAME}$"; then
+    echo -e "${RED}Image verification failed - image not found after build!${NC}"
     exit 1
 fi
 
 echo -e "${YELLOW}Starting container...${NC}"
+
+# Final port check and cleanup before starting container
+echo -e "${YELLOW}Final port check before starting container...${NC}"
+if ! free_port $PORT; then
+    echo -e "${RED}Cannot free port $PORT for container startup!${NC}"
+    exit 1
+fi
 
 # Run container with specified port
 if run_docker run -d \
@@ -292,7 +388,32 @@ if run_docker run -d \
     echo -e "${GREEN}Container started successfully!${NC}"
 else
     echo -e "${RED}Container failed to start!${NC}"
-    exit 1
+    echo -e "${RED}This might be due to port conflicts or other issues.${NC}"
+
+    # Check if port is still free
+    if lsof -i :$PORT &> /dev/null; then
+        echo -e "${YELLOW}Port $PORT is occupied again. Attempting to free it...${NC}"
+        if free_port $PORT; then
+            echo -e "${YELLOW}Retrying container start...${NC}"
+            if run_docker run -d \
+                --name $CONTAINER_NAME \
+                -p $PORT:$PORT \
+                -e PORT=$PORT \
+                --restart unless-stopped \
+                $IMAGE_NAME; then
+                echo -e "${GREEN}Container started successfully on retry!${NC}"
+            else
+                echo -e "${RED}Container failed to start even after retry!${NC}"
+                exit 1
+            fi
+        else
+            echo -e "${RED}Could not free port $PORT for retry.${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Port is free but container still failed to start.${NC}"
+        exit 1
+    fi
 fi
 
 # Get server IP address
@@ -331,4 +452,27 @@ else
     echo -e "${RED}✗ Container is not running${NC}"
     echo -e "${YELLOW}Container logs:${NC}"
     run_docker logs $CONTAINER_NAME
+    echo ""
+    echo -e "${RED}Troubleshooting:${NC}"
+
+    # Check current port usage
+    if lsof -i :$PORT &> /dev/null; then
+        echo -e "${YELLOW}Port $PORT is currently occupied by:${NC}"
+        lsof -i :$PORT
+        echo -e "${YELLOW}Attempting to free port $PORT...${NC}"
+        if free_port $PORT; then
+            echo -e "${GREEN}Port freed successfully. Try restarting the container:${NC}"
+            echo -e "${YELLOW}$DOCKER_CMD start $CONTAINER_NAME${NC}"
+        else
+            echo -e "${RED}Could not free port $PORT automatically.${NC}"
+        fi
+    else
+        echo -e "${GREEN}Port $PORT is free.${NC}"
+    fi
+
+    echo -e "${YELLOW}Other troubleshooting steps:${NC}"
+    echo -e "${YELLOW}- View detailed logs: $DOCKER_CMD logs $CONTAINER_NAME${NC}"
+    echo -e "${YELLOW}- Try a different port: $0 -p <different-port>${NC}"
+    echo -e "${YELLOW}- Check Docker status: $DOCKER_CMD ps -a${NC}"
+    echo -e "${YELLOW}- Manually free port: kill -9 \$(lsof -ti :$PORT)${NC}"
 fi
