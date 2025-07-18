@@ -402,12 +402,15 @@ curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh
 - ⚠️ **Requires sudo privileges** for certbot and certificate management
 - 🌐 **Port 80 must be accessible** from the internet for Let's Encrypt validation
 - 🔒 **Port 443 recommended** for HTTPS (or use custom port)
+- 🛠️ **marzban-node support**: Automatically stops/starts marzban-node if detected
 
 **What it does:**
 1. 🔍 Detects your server's external IP address
 2. 🌐 Creates domain: `YOUR_IP.nip.io` (automatically resolves to your IP)
-3. 🔐 Gets valid Let's Encrypt SSL certificate
-4. 🚀 Starts server with trusted certificate
+3. 🛠️ Safely stops marzban-node (if running) to free port 80
+4. 🔐 Gets valid Let's Encrypt SSL certificate
+5. 🔄 Restarts marzban-node (if it was stopped)
+6. 🚀 Starts server with trusted certificate
 
 **Result:**
 ```bash

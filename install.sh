@@ -233,13 +233,13 @@ get_external_ip() {
 install_certbot() {
     local os=$(detect_os)
     echo -e "${BLUE}Installing certbot for $os...${NC}"
-    
+
     # Check if running as root
     local use_sudo=""
     if [ "$EUID" -ne 0 ] && [ "$os" != "macos" ]; then
         use_sudo="sudo"
     fi
-    
+
     case $os in
         "debian")
             $use_sudo apt-get update
@@ -264,7 +264,7 @@ install_certbot() {
             return 1
             ;;
     esac
-    
+
     # Verify installation
     if command -v certbot &> /dev/null; then
         echo -e "${GREEN}✅ Certbot installed successfully${NC}"
@@ -279,9 +279,9 @@ install_certbot() {
 get_letsencrypt_cert() {
     local domain="$1"
     local email="${2:-admin@$domain}"
-    
+
     echo -e "${BLUE}Getting Let's Encrypt certificate for $domain...${NC}"
-    
+
     # Check if running as root
     if [ "$EUID" -ne 0 ]; then
         echo -e "${YELLOW}Certbot requires root privileges. Checking sudo...${NC}"
@@ -293,7 +293,7 @@ get_letsencrypt_cert() {
             }
         fi
     fi
-    
+
     # Check if certbot is installed
     if ! command -v certbot &> /dev/null; then
         echo -e "${YELLOW}Certbot not found, installing...${NC}"
@@ -302,26 +302,44 @@ get_letsencrypt_cert() {
             return 1
         fi
     fi
-    
+
     # Stop any service on port 80 temporarily
     local port_80_services=""
     local port_80_pids=""
-    
+    local marzban_node_stopped=false
+
     echo -e "${BLUE}Checking port 80...${NC}"
+
+    # Check if marzban-node is running and can be stopped
+    if command -v marzban-node &> /dev/null; then
+        echo -e "${YELLOW}Found marzban-node, checking if it's using port 80...${NC}"
+        if lsof -i :80 | grep -q python || docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -q ":80->"; then
+            echo -e "${YELLOW}Stopping marzban-node to free port 80...${NC}"
+            if marzban-node down; then
+                marzban_node_stopped=true
+                echo -e "${GREEN}✅ marzban-node stopped successfully${NC}"
+                sleep 3  # Wait for complete shutdown
+            else
+                echo -e "${RED}❌ Failed to stop marzban-node${NC}"
+            fi
+        fi
+    fi
+
+    # Check if port 80 is still occupied after marzban-node stop
     if lsof -i :80 &> /dev/null; then
-        echo -e "${YELLOW}Port 80 is occupied, stopping services temporarily...${NC}"
+        echo -e "${YELLOW}Port 80 is still occupied, stopping remaining services...${NC}"
         port_80_pids=$(lsof -ti :80)
-        
+
         # First try graceful shutdown
         for pid in $port_80_pids; do
             if kill -TERM $pid 2>/dev/null; then
                 echo -e "${YELLOW}  Stopped process $pid${NC}"
             fi
         done
-        
+
         # Wait a bit for graceful shutdown
         sleep 2
-        
+
         # Force kill if still running
         if lsof -i :80 &> /dev/null; then
             port_80_pids=$(lsof -ti :80)
@@ -331,27 +349,27 @@ get_letsencrypt_cert() {
                 fi
             done
         fi
-        
+
         # Final check
         if lsof -i :80 &> /dev/null; then
             echo -e "${RED}Unable to free port 80. Please stop services manually:${NC}"
             lsof -i :80
             return 1
         fi
-        
+
         port_80_services="$port_80_pids"
     fi
-    
+
     # Get certificate using standalone mode with sudo
     local success=false
     local certbot_cmd="certbot certonly --standalone --non-interactive --agree-tos --email '$email' -d '$domain' --preferred-challenges http"
-    
+
     if [ "$EUID" -eq 0 ]; then
         eval $certbot_cmd
     else
         sudo sh -c "$certbot_cmd"
     fi
-    
+
     if [ $? -eq 0 ]; then
         success=true
         echo -e "${GREEN}✅ Certificate obtained successfully for $domain${NC}"
@@ -362,13 +380,24 @@ get_letsencrypt_cert() {
         echo -e "${YELLOW}2. Firewall is blocking port 80${NC}"
         echo -e "${YELLOW}3. Domain $domain does not resolve to this server${NC}"
         echo -e "${YELLOW}4. Rate limiting by Let's Encrypt${NC}"
-        
+
         # Show debug info
         echo -e "${YELLOW}Debug info:${NC}"
         echo -e "${YELLOW}  External IP: $(get_external_ip)${NC}"
         echo -e "${YELLOW}  Domain resolves to: $(nslookup $domain | grep -A1 'Name:' | tail -1 | awk '{print $2}' 2>/dev/null || echo 'unknown')${NC}"
     fi
-    
+
+    # Restart marzban-node if it was stopped
+    if [ "$marzban_node_stopped" = true ]; then
+        echo -e "${BLUE}Restarting marzban-node...${NC}"
+        if marzban-node up -d; then
+            echo -e "${GREEN}✅ marzban-node restarted successfully${NC}"
+        else
+            echo -e "${RED}❌ Failed to restart marzban-node${NC}"
+            echo -e "${YELLOW}Please manually restart with: marzban-node up -d${NC}"
+        fi
+    fi
+
     if [ "$success" = true ]; then
         echo -e "${GREEN}Certificate files location:${NC}"
         echo -e "${GREEN}  Cert: /etc/letsencrypt/live/$domain/fullchain.pem${NC}"
