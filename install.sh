@@ -15,16 +15,29 @@ TEMP_DIR="/tmp/ming-mong-$$"
 
 # Parse command line arguments
 PORT=""
+ENABLE_TLS=""
+AUTO_SSL=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         -p|--port)
             PORT="$2"
             shift 2
             ;;
+        --tls|--ssl)
+            ENABLE_TLS="true"
+            shift
+            ;;
+        --auto-ssl)
+            AUTO_SSL="true"
+            ENABLE_TLS="true"
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
             echo "  -p, --port PORT    Set the port to listen on (default: $DEFAULT_PORT)"
+            echo "  --tls, --ssl       Enable TLS/SSL (WSS) with self-signed certificates"
+            echo "  --auto-ssl         Enable TLS with automatic Let's Encrypt certificate via nip.io"
             echo "  -h, --help         Show this help message"
             exit 0
             ;;
@@ -45,6 +58,29 @@ if [ -z "$PORT" ]; then
     else
         PORT=$user_port
     fi
+fi
+
+# Ask about TLS if not specified
+if [ -z "$ENABLE_TLS" ] && [ -z "$AUTO_SSL" ]; then
+    echo -e "${YELLOW}Choose TLS/SSL option:${NC}"
+    echo -e "${YELLOW}1) No TLS (plain HTTP/WS)${NC}"
+    echo -e "${YELLOW}2) Self-signed certificates${NC}"
+    echo -e "${YELLOW}3) Automatic Let's Encrypt certificate via nip.io${NC}"
+    echo -e "${YELLOW}Enter choice (1-3) [1]: ${NC}"
+    read -r tls_choice
+
+    case $tls_choice in
+        2)
+            ENABLE_TLS="true"
+            ;;
+        3)
+            AUTO_SSL="true"
+            ENABLE_TLS="true"
+            ;;
+        *)
+            ENABLE_TLS="false"
+            ;;
+    esac
 fi
 
 # Validate port
@@ -127,6 +163,159 @@ free_port() {
     return 0
 }
 
+# Function to create self-signed certificates
+create_self_signed_cert() {
+    local cert_dir="$1"
+    local domain="${2:-localhost}"
+
+    echo -e "${BLUE}Creating self-signed TLS certificate...${NC}"
+
+    # Create certificate directory
+    mkdir -p "$cert_dir"
+
+    # Generate private key
+    openssl genrsa -out "$cert_dir/server.key" 2048 2>/dev/null
+
+    # Generate certificate signing request with SAN
+    openssl req -new -key "$cert_dir/server.key" -out "$cert_dir/server.csr" \
+        -subj "/C=US/ST=State/L=City/O=Organization/CN=$domain" 2>/dev/null
+
+    # Generate self-signed certificate with SAN (Subject Alternative Names)
+    openssl x509 -req -days 365 -in "$cert_dir/server.csr" -signkey "$cert_dir/server.key" \
+        -out "$cert_dir/server.crt" \
+        -extensions v3_req \
+        -extfile <(cat <<EOF
+[v3_req]
+keyUsage = keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+[alt_names]
+DNS.1 = localhost
+DNS.2 = *.localhost
+IP.1 = 127.0.0.1
+IP.2 = ::1
+EOF
+) 2>/dev/null
+
+    # Clean up CSR file
+    rm -f "$cert_dir/server.csr"
+
+    echo -e "${GREEN}✓ Self-signed certificate created for domain: $domain${NC}"
+    echo -e "${GREEN}  Certificate: $cert_dir/server.crt${NC}"
+    echo -e "${GREEN}  Private Key: $cert_dir/server.key${NC}"
+    echo -e "${YELLOW}  Note: Self-signed certificates will show security warnings in browsers${NC}"
+}
+
+# Function to get external IP address
+get_external_ip() {
+    local ip=""
+
+    # Try multiple IP detection services
+    for service in "https://ifconfig.me" "https://ipinfo.io/ip" "https://icanhazip.com" "https://checkip.amazonaws.com"; do
+        ip=$(curl -s --max-time 5 "$service" 2>/dev/null | tr -d '\n\r')
+        if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$ip"
+            return 0
+        fi
+    done
+
+    # Fallback to local IP
+    ip=$(hostname -I | awk '{print $1}' 2>/dev/null)
+    if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "$ip"
+        return 0
+    fi
+
+    return 1
+}
+
+# Function to install certbot
+install_certbot() {
+    local os=$(detect_os)
+    echo -e "${BLUE}Installing certbot for $os...${NC}"
+
+    case $os in
+        "debian")
+            sudo apt-get update
+            sudo apt-get install -y certbot
+            ;;
+        "redhat")
+            sudo yum install -y certbot
+            ;;
+        "arch")
+            sudo pacman -Sy certbot
+            ;;
+        "macos")
+            if command -v brew &> /dev/null; then
+                brew install certbot
+            else
+                echo -e "${RED}Please install Homebrew first${NC}"
+                return 1
+            fi
+            ;;
+        *)
+            echo -e "${RED}Unsupported OS for automatic certbot installation${NC}"
+            return 1
+            ;;
+    esac
+}
+
+# Function to get Let's Encrypt certificate via nip.io
+get_letsencrypt_cert() {
+    local domain="$1"
+    local email="${2:-admin@$domain}"
+
+    echo -e "${BLUE}Getting Let's Encrypt certificate for $domain...${NC}"
+
+    # Check if certbot is installed
+    if ! command -v certbot &> /dev/null; then
+        echo -e "${YELLOW}Certbot not found, installing...${NC}"
+        if ! install_certbot; then
+            echo -e "${RED}Failed to install certbot${NC}"
+            return 1
+        fi
+    fi
+
+    # Stop any service on port 80 temporarily
+    local port_80_process=""
+    if lsof -i :80 &> /dev/null; then
+        echo -e "${YELLOW}Port 80 is occupied, attempting to free it temporarily...${NC}"
+        port_80_process=$(lsof -ti :80)
+        for pid in $port_80_process; do
+            kill -STOP $pid 2>/dev/null || true
+        done
+    fi
+
+    # Get certificate using standalone mode
+    local success=false
+    if certbot certonly --standalone --non-interactive --agree-tos --email "$email" -d "$domain" --preferred-challenges http; then
+        success=true
+        echo -e "${GREEN}✅ Certificate obtained successfully for $domain${NC}"
+    else
+        echo -e "${RED}❌ Failed to obtain certificate for $domain${NC}"
+        echo -e "${YELLOW}This might be due to:${NC}"
+        echo -e "${YELLOW}1. Port 80 is not accessible from the internet${NC}"
+        echo -e "${YELLOW}2. Firewall is blocking port 80${NC}"
+        echo -e "${YELLOW}3. Domain $domain does not resolve to this server${NC}"
+    fi
+
+    # Restore stopped processes
+    if [ -n "$port_80_process" ]; then
+        for pid in $port_80_process; do
+            kill -CONT $pid 2>/dev/null || true
+        done
+    fi
+
+    if [ "$success" = true ]; then
+        echo -e "${GREEN}Certificate files location:${NC}"
+        echo -e "${GREEN}  Cert: /etc/letsencrypt/live/$domain/fullchain.pem${NC}"
+        echo -e "${GREEN}  Key:  /etc/letsencrypt/live/$domain/privkey.pem${NC}"
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Cleanup function
 cleanup() {
     if [ -d "$TEMP_DIR" ]; then
@@ -159,6 +348,13 @@ run_docker() {
 
 echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
 echo -e "${GREEN}Port: $PORT${NC}"
+if [ "$AUTO_SSL" = "true" ]; then
+    echo -e "${GREEN}TLS/SSL: Automatic Let's Encrypt via nip.io${NC}"
+elif [ "$ENABLE_TLS" = "true" ]; then
+    echo -e "${GREEN}TLS/SSL: Self-signed certificates${NC}"
+else
+    echo -e "${GREEN}TLS/SSL: Disabled (WS)${NC}"
+fi
 echo -e "${YELLOW}Note: This script will automatically stop any processes using port $PORT${NC}"
 
 # Check and free the port if needed
@@ -378,11 +574,59 @@ if ! free_port $PORT; then
     exit 1
 fi
 
+# Prepare TLS certificates if enabled
+CERT_DIR=""
+DOCKER_ARGS=""
+DOMAIN=""
+
+if [ "$AUTO_SSL" = "true" ]; then
+    # Get external IP and create nip.io domain
+    echo -e "${BLUE}Detecting external IP address...${NC}"
+    EXTERNAL_IP=$(get_external_ip)
+
+    if [ -z "$EXTERNAL_IP" ]; then
+        echo -e "${RED}Failed to detect external IP address${NC}"
+        echo -e "${YELLOW}Falling back to self-signed certificates...${NC}"
+        AUTO_SSL="false"
+        ENABLE_TLS="true"
+    else
+        DOMAIN="$EXTERNAL_IP.nip.io"
+        echo -e "${GREEN}External IP: $EXTERNAL_IP${NC}"
+        echo -e "${GREEN}Domain: $DOMAIN${NC}"
+
+        # Get Let's Encrypt certificate
+        if get_letsencrypt_cert "$DOMAIN"; then
+            echo -e "${GREEN}✅ Let's Encrypt certificate obtained successfully${NC}"
+            # Add TLS environment variables and volume mounts for Let's Encrypt
+            DOCKER_ARGS="-v /etc/letsencrypt:/etc/letsencrypt -e ENABLE_TLS=true -e TLS_CERT_FILE=/etc/letsencrypt/live/$DOMAIN/fullchain.pem -e TLS_KEY_FILE=/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+        else
+            echo -e "${RED}Failed to get Let's Encrypt certificate${NC}"
+            echo -e "${YELLOW}Falling back to self-signed certificates...${NC}"
+            AUTO_SSL="false"
+            ENABLE_TLS="true"
+        fi
+    fi
+fi
+
+if [ "$ENABLE_TLS" = "true" ] && [ "$AUTO_SSL" != "true" ]; then
+    CERT_DIR="$TEMP_DIR/certs"
+
+    # Create self-signed certificates
+    if ! create_self_signed_cert "$CERT_DIR" "localhost"; then
+        echo -e "${RED}Failed to create TLS certificates!${NC}"
+        exit 1
+    fi
+
+    # Add TLS environment variables and volume mounts for self-signed certs
+    DOCKER_ARGS="-v $CERT_DIR:/app/certs -e ENABLE_TLS=true -e TLS_CERT_FILE=/app/certs/server.crt -e TLS_KEY_FILE=/app/certs/server.key"
+fi
+
 # Run container with specified port
 if run_docker run -d \
     --name $CONTAINER_NAME \
     -p $PORT:$PORT \
     -e PORT=$PORT \
+    $DOCKER_ARGS \
     --restart unless-stopped \
     $IMAGE_NAME; then
     echo -e "${GREEN}Container started successfully!${NC}"
@@ -425,7 +669,24 @@ fi
 
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo -e "${GREEN}WebSocket server is running on port $PORT${NC}"
-echo -e "${GREEN}WebSocket URL: ws://$SERVER_IP:$PORT/ws${NC}"
+
+# Show correct URL based on TLS setting
+if [ "$AUTO_SSL" = "true" ] && [ -n "$DOMAIN" ]; then
+    echo -e "${GREEN}WebSocket URL: wss://$DOMAIN:$PORT/ws${NC}"
+    echo -e "${GREEN}HTTP URL: https://$DOMAIN:$PORT/ping${NC}"
+    echo -e "${GREEN}Security: Let's Encrypt certificate (trusted by browsers)${NC}"
+    echo -e "${GREEN}✅ No certificate warnings - ready for production!${NC}"
+elif [ "$ENABLE_TLS" = "true" ]; then
+    echo -e "${GREEN}WebSocket URL: wss://$SERVER_IP:$PORT/ws${NC}"
+    echo -e "${GREEN}HTTP URL: https://$SERVER_IP:$PORT/ping${NC}"
+    echo -e "${GREEN}Security: Self-signed certificate${NC}"
+    echo -e "${YELLOW}Note: Self-signed certificate will show security warnings in browsers${NC}"
+else
+    echo -e "${GREEN}WebSocket URL: ws://$SERVER_IP:$PORT/ws${NC}"
+    echo -e "${GREEN}HTTP URL: http://$SERVER_IP:$PORT/ping${NC}"
+    echo -e "${GREEN}Security: Plain WebSocket (WS)${NC}"
+fi
+
 echo -e "${GREEN}Check status: $DOCKER_CMD ps${NC}"
 echo -e "${GREEN}View logs: $DOCKER_CMD logs $CONTAINER_NAME${NC}"
 echo -e "${GREEN}Stop server: $DOCKER_CMD stop $CONTAINER_NAME${NC}"
@@ -438,15 +699,29 @@ if run_docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "^${CONTAINE
     echo -e "${GREEN}✓ Container is running correctly${NC}"
     echo -e "${YELLOW}Try connecting to the WebSocket server:${NC}"
     echo -e "${YELLOW}Install wscat: npm install -g wscat${NC}"
-    echo -e "${YELLOW}Connect: wscat -c ws://$SERVER_IP:$PORT/ws${NC}"
+
+    # Show correct connection examples based on TLS
+    if [ "$AUTO_SSL" = "true" ] && [ -n "$DOMAIN" ]; then
+        echo -e "${YELLOW}Connect: wscat -c wss://$DOMAIN:$PORT/ws${NC}"
+        echo -e "${YELLOW}Note: Trusted certificate - no --no-check needed!${NC}"
+        WS_URL="wss://$DOMAIN:$PORT/ws"
+    elif [ "$ENABLE_TLS" = "true" ]; then
+        echo -e "${YELLOW}Connect: wscat -c wss://$SERVER_IP:$PORT/ws${NC}"
+        echo -e "${YELLOW}Note: Use --no-check for self-signed certificates: wscat -c wss://$SERVER_IP:$PORT/ws --no-check${NC}"
+        WS_URL="wss://$SERVER_IP:$PORT/ws"
+    else
+        echo -e "${YELLOW}Connect: wscat -c ws://$SERVER_IP:$PORT/ws${NC}"
+        WS_URL="ws://$SERVER_IP:$PORT/ws"
+    fi
+
     echo ""
     echo -e "${BLUE}To generate a signature and test:${NC}"
     echo -e "${BLUE}DATE=\$(date -u +\"%Y-%m-%d\")${NC}"
     echo -e "${BLUE}SIGNATURE=\$(echo -n \"\$DATE\"ming-mong-server | sha256sum | cut -c1-16)${NC}"
-    echo -e "${BLUE}echo '{\"type\":\"ping\",\"signature\":\"'\$SIGNATURE'\",\"timestamp\":\"'\$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")'\"}' | wscat -c ws://$SERVER_IP:$PORT/ws${NC}"
+    echo -e "${BLUE}echo '{\"type\":\"ping\",\"signature\":\"'\$SIGNATURE'\",\"timestamp\":\"'\$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")'\"}' | wscat -c $WS_URL${NC}"
     echo ""
     echo -e "${BLUE}Or use browser JavaScript:${NC}"
-    echo -e "${BLUE}const ws = new WebSocket('ws://$SERVER_IP:$PORT/ws');${NC}"
+    echo -e "${BLUE}const ws = new WebSocket('$WS_URL');${NC}"
     echo -e "${BLUE}ws.onopen = () => ws.send(JSON.stringify({type:'ping',signature:'SIGNATURE',timestamp:new Date().toISOString()}));${NC}"
 else
     echo -e "${RED}✗ Container is not running${NC}"

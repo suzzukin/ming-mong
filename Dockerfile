@@ -19,20 +19,23 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
 # Используем минимальный образ для финального контейнера
 FROM alpine:latest
 
-# Устанавливаем необходимые пакеты
-RUN apk --no-cache add ca-certificates
+# Устанавливаем необходимые пакеты (ca-certificates для HTTPS, openssl для создания сертификатов)
+RUN apk --no-cache add ca-certificates openssl
 
 # Создаем пользователя для безопасности
 RUN addgroup -g 1000 appgroup && adduser -u 1000 -G appgroup -s /bin/sh -D appuser
 
 # Устанавливаем рабочую директорию
-WORKDIR /root/
+WORKDIR /app
 
 # Копируем собранное приложение из builder
 COPY --from=builder /app/main .
 
-# Меняем владельца файла
-RUN chown appuser:appgroup ./main
+# Создаем директорию для TLS сертификатов
+RUN mkdir -p /app/certs
+
+# Меняем владельца файлов
+RUN chown -R appuser:appgroup /app
 
 # Переключаемся на пользователя appuser
 USER appuser

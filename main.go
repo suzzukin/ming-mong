@@ -35,6 +35,9 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// Global variable for TLS state
+var useTLS bool
+
 func generateSignature(date string) string {
 	data := date + "ming-mong-server"
 	hash := sha256.Sum256([]byte(data))
@@ -167,6 +170,11 @@ func main() {
 		port = "8080"
 	}
 
+	// Get TLS settings from environment variables
+	certFile := os.Getenv("TLS_CERT_FILE")
+	keyFile := os.Getenv("TLS_KEY_FILE")
+	enableTLS := os.Getenv("ENABLE_TLS")
+
 	// Validate port
 	if portNum, err := strconv.Atoi(port); err != nil || portNum < 1 || portNum > 65535 {
 		log.Fatalf("Invalid port: %s", port)
@@ -175,23 +183,153 @@ func main() {
 	// Setup WebSocket handler
 	http.HandleFunc("/ws", handleWebSocket)
 
-	// Handle unknown endpoints with stealth mode (immediate connection close)
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ws" {
-			// Stealth mode - close connection immediately
+	// Add HTTP ping endpoint for non-TLS compatibility
+	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		// Handle CORS preflight request
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "X-Ping-Signature")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// Only allow GET requests
+		if r.Method != http.MethodGet {
 			if hijacker, ok := w.(http.Hijacker); ok {
 				conn, _, err := hijacker.Hijack()
 				if err == nil {
 					conn.Close()
 				}
 			}
+			return
+		}
+
+		// Get signature from header
+		signature := r.Header.Get("X-Ping-Signature")
+		if signature == "" {
+			if hijacker, ok := w.(http.Hijacker); ok {
+				conn, _, err := hijacker.Hijack()
+				if err == nil {
+					conn.Close()
+				}
+			}
+			return
+		}
+
+		// Validate signature
+		if !isValidSignature(signature) {
+			if hijacker, ok := w.(http.Hijacker); ok {
+				conn, _, err := hijacker.Hijack()
+				if err == nil {
+					conn.Close()
+				}
+			}
+			return
+		}
+
+		// Valid signature - respond with CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// Add certificate acceptance endpoint for TLS
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			// If TLS is enabled, serve a simple page for certificate acceptance
+			if useTLS {
+				w.Header().Set("Content-Type", "text/html")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head>
+    <title>Ming-Mong Server - Certificate Accepted</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .success { color: #28a745; }
+        .info { color: #17a2b8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="success">🔒 Ming-Mong Server</h1>
+        <h2>Certificate Accepted Successfully!</h2>
+        <p class="info">Your browser now trusts this server's certificate.</p>
+        <p>WebSocket endpoint: <strong>wss://` + r.Host + `/ws</strong></p>
+        <p>HTTP endpoint: <strong>https://` + r.Host + `/ping</strong></p>
+        <p>You can now close this tab and use HTTPS/WSS connections.</p>
+        <hr>
+        <p><small>This server is running with TLS encryption enabled.</small></p>
+    </div>
+</body>
+</html>`))
+				return
+			}
+		}
+
+		// Stealth mode for all other paths
+		if hijacker, ok := w.(http.Hijacker); ok {
+			conn, _, err := hijacker.Hijack()
+			if err == nil {
+				conn.Close()
+			}
 		}
 	})
 
-	log.Printf("Ming-Mong WebSocket server starting on port %s", port)
-	log.Printf("WebSocket endpoint: ws://localhost:%s/ws", port)
+	// Determine if we should use TLS
+	useTLS = false
+	if enableTLS == "true" || enableTLS == "1" || enableTLS == "yes" {
+		useTLS = true
+	}
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("Server failed to start: %v", err)
+	// Auto-detect TLS if cert files are provided
+	if certFile != "" && keyFile != "" {
+		if _, err := os.Stat(certFile); err == nil {
+			if _, err := os.Stat(keyFile); err == nil {
+				useTLS = true
+			}
+		}
+	}
+
+	// Default cert/key files if not specified
+	if useTLS && (certFile == "" || keyFile == "") {
+		certFile = "server.crt"
+		keyFile = "server.key"
+
+		// Check if default files exist
+		if _, err := os.Stat(certFile); err != nil {
+			useTLS = false
+			log.Printf("Warning: TLS requested but cert file '%s' not found", certFile)
+		}
+		if _, err := os.Stat(keyFile); err != nil {
+			useTLS = false
+			log.Printf("Warning: TLS requested but key file '%s' not found", keyFile)
+		}
+	}
+
+	log.Printf("Ming-Mong WebSocket server starting on port %s", port)
+
+	if useTLS {
+		log.Printf("TLS enabled - using cert: %s, key: %s", certFile, keyFile)
+		log.Printf("WebSocket endpoint: wss://localhost:%s/ws", port)
+		log.Printf("Security: Encrypted WebSocket connections (WSS)")
+
+		if err := http.ListenAndServeTLS(":"+port, certFile, keyFile, nil); err != nil {
+			log.Fatalf("HTTPS server failed to start: %v", err)
+		}
+	} else {
+		log.Printf("TLS disabled - using plain HTTP")
+		log.Printf("WebSocket endpoint: ws://localhost:%s/ws", port)
+		log.Printf("Security: Plain WebSocket connections (WS)")
+		log.Printf("Note: For production use, enable TLS with ENABLE_TLS=true")
+
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			log.Fatalf("HTTP server failed to start: %v", err)
+		}
 	}
 }

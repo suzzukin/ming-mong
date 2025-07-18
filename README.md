@@ -13,19 +13,34 @@ A minimal WebSocket server with **stealth mode** and **signature-based authentic
 ## 🏗️ Quick Install
 
 ```bash
+# Basic installation (WS)
 curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash
-```
 
-Or with custom port:
-```bash
+# With custom port
 curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- -p 9090
+
+# With automatic Let's Encrypt certificate (RECOMMENDED)
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- --auto-ssl
+
+# With self-signed certificates
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- --tls
+
+# With custom port and auto SSL
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- -p 443 --auto-ssl
 ```
 
 ## 📋 WebSocket Protocol
 
 ### Endpoint
+
+**Plain WebSocket (WS):**
 ```
 ws://your-server-ip:8080/ws
+```
+
+**Secure WebSocket (WSS):**
+```
+wss://your-server-ip:8080/ws
 ```
 
 **Note:** Replace `your-server-ip` with your actual server IP address (e.g., `192.168.1.100` or `localhost` for local testing)
@@ -89,7 +104,7 @@ function generateSignature() {
         });
 }
 
-async function pingServer() {
+async function pingServer(useSSL = false) {
     // Check WebSocket support
     if (!window.WebSocket) {
         console.error('WebSocket not supported by this browser');
@@ -97,10 +112,11 @@ async function pingServer() {
     }
     
     const signature = await generateSignature();
-    const ws = new WebSocket('ws://your-server-ip:8080/ws');
+    const protocol = useSSL ? 'wss' : 'ws';
+    const ws = new WebSocket(`${protocol}://your-server-ip:8080/ws`);
     
     ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log(`WebSocket connected (${protocol.toUpperCase()})`);
         ws.send(JSON.stringify({
             type: 'ping',
             signature: signature,
@@ -127,10 +143,15 @@ async function pingServer() {
     
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        if (useSSL) {
+            console.error('TLS/SSL connection failed. Check certificate or use HTTP page for WSS.');
+        }
     };
 }
 
-pingServer();
+// Usage examples:
+pingServer(false); // Plain WebSocket (WS)
+pingServer(true);  // Secure WebSocket (WSS)
 ```
 
 ### Node.js
@@ -336,8 +357,14 @@ echo "$MESSAGE" | wscat -c ws://your-server-ip:8080/ws
 # Install wscat
 npm install -g wscat
 
-# Connect and send message
+# Connect to plain WebSocket
 wscat -c ws://your-server-ip:8080/ws
+
+# Connect to secure WebSocket
+wscat -c wss://your-server-ip:8080/ws
+
+# For self-signed certificates (ignore SSL errors)
+wscat -c wss://your-server-ip:8080/ws --no-check
 
 # Then send (replace with actual signature):
 {"type":"ping","signature":"a1b2c3d4e5f6g7h8","timestamp":"2024-01-15T10:30:45Z"}
@@ -357,19 +384,148 @@ echo "Today's signature: $SIGNATURE"
 
 ### Environment Variables
 - `PORT` - Server port (default: 8080)
+- `ENABLE_TLS` - Enable TLS/SSL (true/false, default: false)
+- `TLS_CERT_FILE` - Path to TLS certificate file (default: server.crt)
+- `TLS_KEY_FILE` - Path to TLS private key file (default: server.key)
 
-### Docker
+## 🌐 Solutions for Servers without Domain Names
+
+### **Option 1: Automatic SSL with nip.io (RECOMMENDED)**
+
+**One-line installation:**
+```bash
+# Automatic installation with Let's Encrypt
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- --auto-ssl
+```
+
+**What it does:**
+1. 🔍 Detects your server's external IP address
+2. 🌐 Creates domain: `YOUR_IP.nip.io` (automatically resolves to your IP)
+3. 🔐 Gets valid Let's Encrypt SSL certificate
+4. 🚀 Starts server with trusted certificate
+
+**Result:**
+```bash
+# Your server IP: 192.168.1.100
+# Domain: 192.168.1.100.nip.io
+# URLs: 
+#   - https://192.168.1.100.nip.io/ping
+#   - wss://192.168.1.100.nip.io/ws
+```
+
+**Usage from HTTPS pages:**
+```javascript
+// Works immediately, no certificate warnings!
+const response = await fetch('https://192.168.1.100.nip.io/ping');
+const ws = new WebSocket('wss://192.168.1.100.nip.io/ws');
+```
+
+### **Option 2: Manual nip.io setup**
+
+```bash
+# Your server IP: 192.168.1.100
+# Use domain: 192.168.1.100.nip.io (automatically resolves to IP)
+
+# Get valid SSL certificate
+certbot certonly --standalone -d 192.168.1.100.nip.io
+
+# Run with valid certificate
+docker run -d -p 443:443 \
+  -e PORT=443 \
+  -e ENABLE_TLS=true \
+  -e TLS_CERT_FILE=/etc/letsencrypt/live/192.168.1.100.nip.io/fullchain.pem \
+  -e TLS_KEY_FILE=/etc/letsencrypt/live/192.168.1.100.nip.io/privkey.pem \
+  -v /etc/letsencrypt:/etc/letsencrypt \
+  ming-mong
+```
+
+### **Option 2: Mixed Mode (HTTP + HTTPS)**
+
+Use both HTTP and HTTPS endpoints:
+
+```bash
+# Install with TLS for WSS support
+./install.sh --tls
+
+# Server will support both:
+# - http://192.168.1.100:8080/ping (HTTP)
+# - https://192.168.1.100:8080/ping (HTTPS)  
+# - ws://192.168.1.100:8080/ws (WebSocket)
+# - wss://192.168.1.100:8080/ws (Secure WebSocket)
+```
+
+**Usage:**
+```javascript
+// For internal networks without domains
+async function pingServer(serverIP) {
+    try {
+        // Try HTTPS first (for HTTPS pages)
+        const response = await fetch(`https://${serverIP}:8080/ping`);
+        return { success: true, method: 'HTTPS' };
+    } catch (error) {
+        // Fallback to HTTP (for HTTP pages)
+        const response = await fetch(`http://${serverIP}:8080/ping`);
+        return { success: true, method: 'HTTP' };
+    }
+}
+```
+
+### Docker Examples
+
+**Plain WebSocket (WS):**
 ```bash
 docker run -d -p 8080:8080 -e PORT=8080 ming-mong
 ```
 
+**Secure WebSocket (WSS) with custom certificates:**
+```bash
+docker run -d -p 8080:8080 \
+  -e PORT=8080 \
+  -e ENABLE_TLS=true \
+  -e TLS_CERT_FILE=/app/certs/server.crt \
+  -e TLS_KEY_FILE=/app/certs/server.key \
+  -v /path/to/certs:/app/certs \
+  ming-mong
+```
+
+**Generate self-signed certificates:**
+```bash
+# Create certificate directory
+mkdir -p certs
+
+# Generate private key
+openssl genrsa -out certs/server.key 2048
+
+# Generate certificate
+openssl req -new -x509 -key certs/server.key -out certs/server.crt -days 365 \
+  -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+
+# Run with TLS
+docker run -d -p 8080:8080 \
+  -e PORT=8080 \
+  -e ENABLE_TLS=true \
+  -v $(pwd)/certs:/app/certs \
+  ming-mong
+```
+
 ## 🛡️ Security Levels
 
-| Level | Features |
-|-------|----------|
-| **Basic** | WebSocket with signature validation |
-| **Stealth** | Unknown endpoints cause connection drops |
-| **Paranoid** | No signature generation endpoint |
+| Level | Protocol | Features |
+|-------|----------|----------|
+| **Basic** | WS | WebSocket with signature validation |
+| **Secure** | WSS | Encrypted WebSocket with TLS/SSL |
+| **Stealth** | WS/WSS | Unknown endpoints cause connection drops |
+| **Paranoid** | WSS | Encrypted + No signature generation endpoint |
+
+### Security Comparison
+
+| Feature | WS | WSS |
+|---------|----|----|
+| **Encryption** | ❌ Plain text | ✅ TLS encrypted |
+| **Certificate** | ❌ Not required | ✅ Required |
+| **Mixed Content** | ⚠️ Limited on HTTPS | ✅ Works everywhere |
+| **Production Ready** | ⚠️ Internal only | ✅ Internet-facing |
+| **Performance** | ✅ Faster | ⚠️ Slight overhead |
 
 ## 📝 Error Codes
 
@@ -421,6 +577,79 @@ docker run -d -p 8080:8080 ming-mong
 - Use `wss://` for secure connections (requires SSL/TLS)
 - Check browser console for detailed error messages
 - WebSocket errors are often network-related (firewall, proxy, etc.)
+
+### TLS/SSL Issues
+- **Self-signed certificates**: Browsers will show security warnings
+- **Certificate validation**: Use `--no-check` flag with wscat for self-signed certs
+- **Mixed content**: HTTPS pages can only connect to `wss://` endpoints
+- **Certificate errors**: Ensure certificate matches the domain/IP you're connecting to
+- **Production use**: Consider using Let's Encrypt or proper CA-issued certificates
+
+### Browser WSS Setup (Self-signed certificates)
+
+**Step 1: Install server with TLS**
+```bash
+# Install with TLS enabled
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- --tls
+```
+
+**Step 2: Accept certificate in browser**
+1. Open `https://localhost:8080` in your browser
+2. You'll see a security warning like "Your connection is not private"
+3. Click "Advanced" → "Proceed to localhost (unsafe)"
+4. You should see "Certificate Accepted Successfully!" page
+5. Now WSS connections will work from JavaScript
+
+**Step 3: Test WebSocket connection**
+```javascript
+// This will work after accepting the certificate
+const ws = new WebSocket('wss://localhost:8080/ws');
+```
+
+**Step 4: Use test page**
+Download and open [test-wss.html](test-wss.html) in your browser for interactive testing with diagnostics.
+
+**Step 5: Run diagnostics (if issues)**
+```bash
+# Download and run diagnostic script
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/diagnose.sh | bash
+```
+
+### Common Issues and Solutions
+
+**Problem: "Could not connect to the server"**
+- ✅ **Check if server is running**: `docker ps` or `lsof -i :8080`
+- ✅ **Try WS first**: Use `ws://localhost:8080/ws` to test basic connectivity
+- ✅ **Check port**: Make sure port 8080 is not blocked by firewall
+
+**Problem: "SSL error has occurred"**
+- ✅ **Server not running with TLS**: Make sure you used `--tls` flag during installation
+- ✅ **Certificate not accepted**: Open `https://localhost:8080` and accept the warning
+- ✅ **Wrong protocol**: Use `wss://` for TLS-enabled servers
+
+**Problem: "WebSocket connection failed"**
+- ✅ **Mixed content**: If testing from HTTPS page, you must use WSS
+- ✅ **Certificate issues**: Clear browser cache and re-accept certificate
+- ✅ **Firewall**: Check if port 8080 is allowed through firewall
+
+**Alternative: Use Chrome with disabled security (testing only)**
+```bash
+# Launch Chrome with disabled SSL verification (NOT for production!)
+google-chrome --ignore-certificate-errors --ignore-ssl-errors --allow-running-insecure-content
+```
+
+**Production solution: Use valid certificates**
+```bash
+# With Let's Encrypt (for real domains)
+certbot certonly --standalone -d yourdomain.com
+
+# Then use the certificates
+docker run -d -p 443:443 \
+  -e PORT=443 \
+  -e ENABLE_TLS=true \
+  -v /etc/letsencrypt/live/yourdomain.com:/app/certs \
+  ming-mong
+```
 
 ## 🗑️ Uninstall
 
