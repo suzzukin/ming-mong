@@ -11,6 +11,7 @@ NC='\033[0m' # No Color
 DEFAULT_PORT=8080
 IMAGE_NAME="ming-mong"
 CONTAINER_NAME="ming-mong-server"
+TEMP_DIR="/tmp/ming-mong-$$"
 
 # Parse command line arguments
 PORT=""
@@ -55,6 +56,36 @@ fi
 echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
 echo -e "${GREEN}Port: $PORT${NC}"
 
+# Cleanup function
+cleanup() {
+    if [ -d "$TEMP_DIR" ]; then
+        rm -rf "$TEMP_DIR"
+    fi
+}
+
+# Set trap for cleanup
+trap cleanup EXIT
+
+# Function to check if docker works (with or without sudo)
+check_docker() {
+    if docker info &> /dev/null; then
+        echo "docker"
+    elif sudo docker info &> /dev/null; then
+        echo "sudo docker"
+    else
+        echo "none"
+    fi
+}
+
+# Function to run docker command (with sudo if needed)
+run_docker() {
+    if [[ "$DOCKER_CMD" == "sudo docker" ]]; then
+        sudo docker "$@"
+    else
+        docker "$@"
+    fi
+}
+
 # Function to detect OS
 detect_os() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -80,7 +111,7 @@ detect_os() {
 install_docker() {
     local os=$(detect_os)
     echo -e "${BLUE}Installing Docker for $os...${NC}"
-    
+
     case $os in
         "debian")
             sudo apt-get update
@@ -123,14 +154,11 @@ install_docker() {
 start_docker() {
     local os=$(detect_os)
     echo -e "${BLUE}Starting Docker daemon...${NC}"
-    
+
     case $os in
         "debian"|"redhat"|"arch"|"linux")
             sudo systemctl start docker
             sudo systemctl enable docker
-            # Add current user to docker group
-            sudo usermod -aG docker $USER
-            echo -e "${YELLOW}You've been added to the docker group. You may need to log out and log back in for this to take effect.${NC}"
             ;;
         "macos")
             open -a Docker
@@ -140,11 +168,40 @@ start_docker() {
     esac
 }
 
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    echo -e "${YELLOW}Git is not installed. Installing git...${NC}"
+    case $(detect_os) in
+        "debian")
+            sudo apt-get update
+            sudo apt-get install -y git
+            ;;
+        "redhat")
+            sudo yum install -y git
+            ;;
+        "arch")
+            sudo pacman -Sy git
+            ;;
+        "macos")
+            if command -v brew &> /dev/null; then
+                brew install git
+            else
+                echo -e "${RED}Please install git manually${NC}"
+                exit 1
+            fi
+            ;;
+        *)
+            echo -e "${RED}Please install git manually${NC}"
+            exit 1
+            ;;
+    esac
+fi
+
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
     echo -e "${YELLOW}Docker is not installed. Installing Docker...${NC}"
     install_docker
-    
+
     # Check if installation was successful
     if ! command -v docker &> /dev/null; then
         echo -e "${RED}Docker installation failed. Please install Docker manually.${NC}"
@@ -153,48 +210,70 @@ if ! command -v docker &> /dev/null; then
     echo -e "${GREEN}Docker installed successfully!${NC}"
 fi
 
-# Check if Docker daemon is running
-if ! docker info &> /dev/null; then
+# Check Docker daemon status
+DOCKER_CMD=$(check_docker)
+
+if [[ "$DOCKER_CMD" == "none" ]]; then
     echo -e "${YELLOW}Docker daemon is not running. Starting Docker...${NC}"
     start_docker
-    
-    # Wait for Docker to start
+
+    # Wait for Docker to start and recheck
     echo -e "${YELLOW}Waiting for Docker daemon to start...${NC}"
     for i in {1..30}; do
-        if docker info &> /dev/null; then
+        DOCKER_CMD=$(check_docker)
+        if [[ "$DOCKER_CMD" != "none" ]]; then
             echo -e "${GREEN}Docker daemon started successfully!${NC}"
             break
         fi
         sleep 2
         echo -n "."
     done
-    
-    if ! docker info &> /dev/null; then
+    echo ""
+
+    if [[ "$DOCKER_CMD" == "none" ]]; then
         echo -e "${RED}Docker daemon failed to start. Please start Docker manually and try again.${NC}"
         exit 1
     fi
 fi
 
+# Show Docker status
+if [[ "$DOCKER_CMD" == "sudo docker" ]]; then
+    echo -e "${YELLOW}Using Docker with sudo${NC}"
+else
+    echo -e "${GREEN}Docker is ready!${NC}"
+fi
+
+echo -e "${YELLOW}Cloning repository...${NC}"
+
+# Clone the repository
+if git clone https://github.com/suzzukin/ming-mong.git "$TEMP_DIR"; then
+    echo -e "${GREEN}Repository cloned successfully!${NC}"
+    cd "$TEMP_DIR"
+else
+    echo -e "${RED}Failed to clone repository!${NC}"
+    exit 1
+fi
+
 echo -e "${YELLOW}Checking for existing container...${NC}"
 
 # Stop and remove existing container if it exists
-if docker ps -a --format "table {{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
+if run_docker ps -a --format "table {{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
     echo -e "${YELLOW}Stopping existing container...${NC}"
-    docker stop $CONTAINER_NAME
+    run_docker stop $CONTAINER_NAME
     echo -e "${YELLOW}Removing existing container...${NC}"
-    docker rm $CONTAINER_NAME
+    run_docker rm $CONTAINER_NAME
 fi
 
 # Remove existing image if it exists
-if docker images --format "table {{.Repository}}" | grep -q "^${IMAGE_NAME}$"; then
+if run_docker images --format "table {{.Repository}}" | grep -q "^${IMAGE_NAME}$"; then
     echo -e "${YELLOW}Removing existing image...${NC}"
-    docker rmi $IMAGE_NAME
+    run_docker rmi $IMAGE_NAME
 fi
 
 echo -e "${YELLOW}Building Docker image...${NC}"
 
 # Build Docker image
-if docker build -t $IMAGE_NAME .; then
+if run_docker build -t $IMAGE_NAME .; then
     echo -e "${GREEN}Image built successfully!${NC}"
 else
     echo -e "${RED}Image build failed!${NC}"
@@ -204,7 +283,7 @@ fi
 echo -e "${YELLOW}Starting container...${NC}"
 
 # Run container with specified port
-if docker run -d \
+if run_docker run -d \
     --name $CONTAINER_NAME \
     -p $PORT:$PORT \
     -e PORT=$PORT \
@@ -219,15 +298,15 @@ fi
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo -e "${GREEN}Server is running on port $PORT${NC}"
 echo -e "${GREEN}Access URL: http://localhost:$PORT/ping${NC}"
-echo -e "${GREEN}Check status: docker ps${NC}"
-echo -e "${GREEN}View logs: docker logs $CONTAINER_NAME${NC}"
-echo -e "${GREEN}Stop server: docker stop $CONTAINER_NAME${NC}"
-echo -e "${GREEN}Remove container: docker rm $CONTAINER_NAME${NC}"
+echo -e "${GREEN}Check status: $DOCKER_CMD ps${NC}"
+echo -e "${GREEN}View logs: $DOCKER_CMD logs $CONTAINER_NAME${NC}"
+echo -e "${GREEN}Stop server: $DOCKER_CMD stop $CONTAINER_NAME${NC}"
+echo -e "${GREEN}Remove container: $DOCKER_CMD rm $CONTAINER_NAME${NC}"
 
 # Check if container is running
 echo -e "${YELLOW}Checking container status...${NC}"
 sleep 2
-if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "^${CONTAINER_NAME}"; then
+if run_docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "^${CONTAINER_NAME}"; then
     echo -e "${GREEN}✓ Container is running correctly${NC}"
     echo -e "${YELLOW}Try making a request to the server:${NC}"
     echo -e "${YELLOW}curl -H 'X-Ping-Signature: SIGNATURE' http://localhost:$PORT/ping${NC}"
@@ -240,5 +319,5 @@ if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "^${CONTAINER_NA
 else
     echo -e "${RED}✗ Container is not running${NC}"
     echo -e "${YELLOW}Container logs:${NC}"
-    docker logs $CONTAINER_NAME
+    run_docker logs $CONTAINER_NAME
 fi
