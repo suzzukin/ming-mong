@@ -295,9 +295,16 @@ else
     exit 1
 fi
 
+# Get server IP address
+SERVER_IP=$(hostname -I | awk '{print $1}')
+if [ -z "$SERVER_IP" ]; then
+    # Fallback to localhost if we can't determine IP
+    SERVER_IP="localhost"
+fi
+
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo -e "${GREEN}Server is running on port $PORT${NC}"
-echo -e "${GREEN}Access URL: http://localhost:$PORT/ping${NC}"
+echo -e "${GREEN}Access URL: http://$SERVER_IP:$PORT/ping${NC}"
 echo -e "${GREEN}Check status: $DOCKER_CMD ps${NC}"
 echo -e "${GREEN}View logs: $DOCKER_CMD logs $CONTAINER_NAME${NC}"
 echo -e "${GREEN}Stop server: $DOCKER_CMD stop $CONTAINER_NAME${NC}"
@@ -309,13 +316,13 @@ sleep 2
 if run_docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "^${CONTAINER_NAME}"; then
     echo -e "${GREEN}✓ Container is running correctly${NC}"
     echo -e "${YELLOW}Try making a request to the server:${NC}"
-    echo -e "${YELLOW}curl -H 'X-Ping-Signature: SIGNATURE' http://localhost:$PORT/ping${NC}"
+    echo -e "${YELLOW}curl -H 'X-Ping-Signature: SIGNATURE' http://$SERVER_IP:$PORT/ping${NC}"
     echo -e "${YELLOW}(replace SIGNATURE with the actual signature)${NC}"
     echo ""
     echo -e "${BLUE}To generate a signature:${NC}"
     echo -e "${BLUE}DATE=\$(date -u +\"%Y-%m-%d\")${NC}"
     echo -e "${BLUE}SIGNATURE=\$(echo -n \"\$DATE\"ming-mong-server | sha256sum | cut -c1-16)${NC}"
-    echo -e "${BLUE}curl -H \"X-Ping-Signature: \$SIGNATURE\" http://localhost:$PORT/ping${NC}"
+    echo -e "${BLUE}curl -H \"X-Ping-Signature: \$SIGNATURE\" http://$SERVER_IP:$PORT/ping${NC}"
 else
     echo -e "${RED}✗ Container is not running${NC}"
     echo -e "${YELLOW}Container logs:${NC}"
