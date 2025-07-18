@@ -48,13 +48,13 @@ A lightweight HTTP server written in Go with SHA256 hash-based authentication fo
 
 ```bash
 # Install on default port (8080)
-curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash
 
 # Install on custom port
-curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/main/install.sh | bash -s -- -p 3000
+curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- -p 3000
 
 # Download and run with port selection
-curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/main/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh -o install.sh
 chmod +x install.sh
 ./install.sh -p 9000
 ```
@@ -93,10 +93,10 @@ The script will automatically:
    # Ubuntu/Debian
    sudo apt-get update
    sudo apt-get install -y docker.io
-   
+
    # CentOS/RHEL
    sudo yum install -y docker
-   
+
    # macOS
    brew install --cask docker
    ```
@@ -117,7 +117,7 @@ The script will automatically:
      -e PORT=8080 \
      --restart unless-stopped \
      ming-mong
-   
+
    # Custom port (3000)
    docker run -d \
      --name ming-mong-server \
@@ -133,7 +133,7 @@ The script will automatically:
 
 ```bash
 # Download and run the uninstallation script
-curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/uninstall.sh | bash
 ```
 
 **Or manually:**
@@ -224,14 +224,14 @@ curl -H "X-Ping-Signature: $SIGNATURE" http://localhost:8080/ping
 async function generateSignature() {
     const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const data = date + 'ming-mong-server';
-    
+
     // Use crypto.subtle for SHA256
     const encoder = new TextEncoder();
     const dataBuffer = encoder.encode(data);
     const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    
+
     return hashHex.substring(0, 16); // First 16 characters
 }
 
@@ -245,7 +245,7 @@ async function ping() {
                 'X-Ping-Signature': signature
             }
         });
-        
+
         if (response.ok) {
             const data = await response.json();
             console.log('Server status:', data.status);
@@ -280,7 +280,7 @@ function generateSignature() {
 // Make request with fetch or axios
 async function pingServer() {
     const signature = generateSignature();
-    
+
     try {
         const response = await fetch('http://localhost:8080/ping', {
             method: 'GET',
@@ -288,7 +288,7 @@ async function pingServer() {
                 'X-Ping-Signature': signature
             }
         });
-        
+
         const data = await response.json();
         console.log('Server response:', data);
     } catch (error) {
@@ -314,7 +314,7 @@ def generate_signature():
 
 # Usage
 signature = generate_signature()
-response = requests.get('http://localhost:8080/ping', 
+response = requests.get('http://localhost:8080/ping',
                        headers={'X-Ping-Signature': signature})
 print(f"Status: {response.status_code}")
 print(f"Response: {response.json()}")
@@ -363,18 +363,18 @@ func generateSignature() string {
 
 func main() {
     signature := generateSignature()
-    
+
     client := &http.Client{}
     req, _ := http.NewRequest("GET", "http://localhost:8080/ping", nil)
     req.Header.Set("X-Ping-Signature", signature)
-    
+
     resp, err := client.Do(req)
     if err != nil {
         fmt.Printf("Error: %v\n", err)
         return
     }
     defer resp.Body.Close()
-    
+
     fmt.Printf("Status: %s\n", resp.Status)
 }
 ```
@@ -601,7 +601,7 @@ Modern browsers automatically send OPTIONS requests before custom headers:
    DATE=$(date -u +"%Y-%m-%d")
    SIGNATURE=$(echo -n "${DATE}ming-mong-server" | sha256sum | cut -c1-16)
    echo "Generated signature: $SIGNATURE"
-   
+
    # Test the signature
    curl -H "X-Ping-Signature: $SIGNATURE" http://localhost:8080/ping
    ```
@@ -610,7 +610,7 @@ Modern browsers automatically send OPTIONS requests before custom headers:
    ```bash
    # Linux
    sudo ntpdate -s time.nist.gov
-   
+
    # macOS
    sudo sntp -sS time.apple.com
    ```
@@ -625,7 +625,7 @@ Modern browsers automatically send OPTIONS requests before custom headers:
    # These endpoints exist:
    curl -H "X-Ping-Signature: $SIGNATURE" http://localhost:8080/ping  # Requires signature
    curl -X OPTIONS http://localhost:8080/ping                         # CORS preflight
-   
+
    # All other paths will close connection:
    curl http://localhost:8080/admin      # Connection closed
    curl http://localhost:8080/api        # Connection closed
@@ -646,7 +646,7 @@ When security scanners (like Nmap, Nessus, or manual probes) try to discover you
 ```bash
 # Common scanner attempts - all will fail silently:
 curl http://localhost:8080/admin          # Connection closed
-curl http://localhost:8080/wp-admin       # Connection closed  
+curl http://localhost:8080/wp-admin       # Connection closed
 curl http://localhost:8080/api/v1         # Connection closed
 curl http://localhost:8080/phpinfo.php    # Connection closed
 curl http://localhost:8080/.env           # Connection closed
@@ -670,35 +670,35 @@ When browsers make requests with custom headers (like `X-Ping-Signature`), they 
 **Example browser behavior:**
 ```
 1. Browser sends: OPTIONS /ping
-2. Server responds: 204 No Content + CORS headers  
+2. Server responds: 204 No Content + CORS headers
 3. Browser sends: GET /ping with X-Ping-Signature header
 4. Server responds: {"status": "ok"}
 ```
 
 ### Security Impact
 
-✅ **No security risk**: OPTIONS requests only return CORS headers  
-✅ **No information disclosure**: Signature algorithm remains secret  
-✅ **No endpoint enumeration**: Only `/ping` endpoint responds to OPTIONS  
+✅ **No security risk**: OPTIONS requests only return CORS headers
+✅ **No information disclosure**: Signature algorithm remains secret
+✅ **No endpoint enumeration**: Only `/ping` endpoint responds to OPTIONS
 ✅ **Browser compatibility**: Modern browsers work seamlessly
 
 ## Ultimate Security Benefits
 
 By removing the `/signature` endpoint, your server achieves **ultimate stealth mode**:
 
-✅ **No information disclosure**: Attackers cannot discover the signature algorithm  
-✅ **No endpoint enumeration**: Only `/ping` exists, everything else is closed  
-✅ **Client-side generation**: Signatures must be generated locally by authorized clients  
-✅ **Algorithm secrecy**: No way to reverse-engineer the signature method  
-✅ **Complete invisibility**: Server appears offline to all unauthorized access  
+✅ **No information disclosure**: Attackers cannot discover the signature algorithm
+✅ **No endpoint enumeration**: Only `/ping` exists, everything else is closed
+✅ **Client-side generation**: Signatures must be generated locally by authorized clients
+✅ **Algorithm secrecy**: No way to reverse-engineer the signature method
+✅ **Complete invisibility**: Server appears offline to all unauthorized access
 ✅ **CORS compatibility**: OPTIONS requests supported without compromising security
 
 **Security Level Comparison:**
 - 🔶 **Level 1**: Standard server with error pages
-- 🔶 **Level 2**: Server with disabled error pages  
+- 🔶 **Level 2**: Server with disabled error pages
 - 🔶 **Level 3**: Server with signature endpoint for development
 - 🔥 **Level 4**: **Your server** - Complete invisibility with client-side signatures
 
 ## License
 
-MIT License - see LICENSE file for details 
+MIT License - see LICENSE file for details
