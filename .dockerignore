@@ -1,0 +1,31 @@
+# Скрипты
+*.sh
+
+# Git
+.git
+.gitignore
+
+# Документация
+README.md
+*.md
+
+# Тестовые файлы
+test.html
+*.html
+
+# Логи
+*.log
+
+# Временные файлы
+*.tmp
+*.temp
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Исполнимые файлы
+main
+ming-mong 
