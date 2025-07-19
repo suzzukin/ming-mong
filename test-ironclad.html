@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ming-Mong Iron-Clad Communication Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .method {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .method.success {
+            border-color: #4CAF50;
+            background: #f8fff8;
+        }
+        .method.error {
+            border-color: #f44336;
+            background: #fff8f8;
+        }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        .log {
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.success {
+            background: #4CAF50;
+            color: white;
+        }
+        .status.error {
+            background: #f44336;
+            color: white;
+        }
+        .status.pending {
+            background: #ff9800;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Ming-Mong Iron-Clad Communication Test</h1>
+        <p>Testing maximum reliable methods to communicate with server bypassing CORS and SSL issues.</p>
+        
+        <div style="margin-bottom: 20px;">
+            <label for="serverUrl">Server URL:</label>
+            <input type="text" id="serverUrl" value="http://82.148.17.45:8080" style="width: 300px; padding: 5px;">
+            <br><br>
+            <label for="signature">Signature:</label>
+            <input type="text" id="signature" placeholder="Enter your signature" style="width: 300px; padding: 5px;">
+            <button onclick="generateSignature()">Auto Generate</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="method" id="pixelMethod">
+            <h3>🖼️ Method 1: Pixel Tracking (Most Reliable)</h3>
+            <p><strong>Reliability:</strong> ★★★★★ | <strong>Works everywhere:</strong> Yes | <strong>CORS-free:</strong> Yes</p>
+            <p>Uses &lt;img&gt; tag to load 1x1 transparent PNG. Status returned in HTTP headers.</p>
+            <button onclick="testPixelTracking()">Test Pixel Tracking</button>
+            <span id="pixelStatus" class="status pending">Not tested</span>
+            <div id="pixelLog" class="log"></div>
+        </div>
+
+        <div class="method" id="jsonpMethod">
+            <h3>📞 Method 2: JSONP (Callback Support)</h3>
+            <p><strong>Reliability:</strong> ★★★★☆ | <strong>Works everywhere:</strong> Yes | <strong>CORS-free:</strong> Yes</p>
+            <p>Uses &lt;script&gt; tag to load JavaScript callback function.</p>
+            <button onclick="testJSONP()">Test JSONP</button>
+            <span id="jsonpStatus" class="status pending">Not tested</span>
+            <div id="jsonpLog" class="log"></div>
+        </div>
+
+        <div class="method" id="fetchMethod">
+            <h3>🌐 Method 3: Regular Fetch (For Comparison)</h3>
+            <p><strong>Reliability:</strong> ★★☆☆☆ | <strong>Works everywhere:</strong> No | <strong>CORS-free:</strong> No</p>
+            <p>Standard fetch request - will likely fail due to CORS or Mixed Content.</p>
+            <button onclick="testFetch()">Test Fetch</button>
+            <span id="fetchStatus" class="status pending">Not tested</span>
+            <div id="fetchLog" class="log"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>📋 Summary</h3>
+        <div id="summary">
+            <p>Run tests above to see results...</p>
+        </div>
+    </div>
+
+    <script>
+        function log(methodId, message) {
+            const logElement = document.getElementById(methodId + 'Log');
+            logElement.textContent += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function setStatus(methodId, status, className) {
+            const statusElement = document.getElementById(methodId + 'Status');
+            statusElement.textContent = status;
+            statusElement.className = 'status ' + className;
+            
+            const methodElement = document.getElementById(methodId + 'Method');
+            methodElement.className = 'method ' + className;
+        }
+
+        function getServerUrl() {
+            return document.getElementById('serverUrl').value.replace(/\/$/, '');
+        }
+
+        function getSignature() {
+            return document.getElementById('signature').value;
+        }
+
+        function generateSignature() {
+            const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const message = date + 'ming-mong-server';
+            
+            // Simple JS hash (for demo - use proper SHA256 in production)
+            crypto.subtle.digest('SHA-256', new TextEncoder().encode(message))
+                .then(hashBuffer => {
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                    document.getElementById('signature').value = hashHex.substring(0, 16);
+                })
+                .catch(() => {
+                    // Fallback for older browsers
+                    document.getElementById('signature').value = 'enter_your_signature_here';
+                });
+        }
+
+        // Method 1: Pixel Tracking (Iron-clad reliable)
+        function testPixelTracking() {
+            const signature = getSignature();
+            if (!signature) {
+                alert('Please enter signature');
+                return;
+            }
+
+            setStatus('pixel', 'Testing...', 'pending');
+            log('pixel', 'Starting pixel tracking test...');
+            log('pixel', 'Signature: ' + signature);
+
+            const img = new Image();
+            const url = getServerUrl() + '/pixel?signature=' + encodeURIComponent(signature) + '&timestamp=' + Date.now();
+            
+            log('pixel', 'URL: ' + url);
+
+            img.onload = function() {
+                log('pixel', '✅ Image loaded successfully');
+                log('pixel', 'Server responded with image');
+                setStatus('pixel', 'SUCCESS', 'success');
+                updateSummary();
+            };
+
+            img.onerror = function() {
+                log('pixel', '❌ Image failed to load');
+                log('pixel', 'Possible reasons: Invalid signature, server down, or network issue');
+                setStatus('pixel', 'FAILED', 'error');
+                updateSummary();
+            };
+
+            img.src = url;
+            log('pixel', 'Image request sent...');
+        }
+
+        // Method 2: JSONP (Reliable with callback)
+        function testJSONP() {
+            const signature = getSignature();
+            if (!signature) {
+                alert('Please enter signature');
+                return;
+            }
+
+            setStatus('jsonp', 'Testing...', 'pending');
+            log('jsonp', 'Starting JSONP test...');
+            log('jsonp', 'Signature: ' + signature);
+
+            // Cleanup previous callback
+            if (window.mingMongCallback) {
+                delete window.mingMongCallback;
+            }
+            const oldScript = document.getElementById('jsonpScript');
+            if (oldScript) {
+                oldScript.remove();
+            }
+
+            // Create callback
+            window.mingMongCallback = function(data) {
+                log('jsonp', '✅ JSONP callback received');
+                log('jsonp', 'Response: ' + JSON.stringify(data, null, 2));
+                setStatus('jsonp', 'SUCCESS', 'success');
+                updateSummary();
+                
+                // Cleanup
+                delete window.mingMongCallback;
+                const script = document.getElementById('jsonpScript');
+                if (script) script.remove();
+            };
+
+            // Create script tag
+            const script = document.createElement('script');
+            script.id = 'jsonpScript';
+            const url = getServerUrl() + '/jsonp?signature=' + encodeURIComponent(signature) + '&callback=mingMongCallback&timestamp=' + Date.now();
+            
+            log('jsonp', 'URL: ' + url);
+            
+            script.onerror = function() {
+                log('jsonp', '❌ Script failed to load');
+                log('jsonp', 'Possible reasons: Invalid signature, server down, or network issue');
+                setStatus('jsonp', 'FAILED', 'error');
+                updateSummary();
+                
+                // Cleanup
+                if (window.mingMongCallback) {
+                    delete window.mingMongCallback;
+                }
+            };
+
+            script.src = url;
+            document.head.appendChild(script);
+            log('jsonp', 'Script request sent...');
+        }
+
+        // Method 3: Regular Fetch (For comparison - likely to fail)
+        function testFetch() {
+            const signature = getSignature();
+            if (!signature) {
+                alert('Please enter signature');
+                return;
+            }
+
+            setStatus('fetch', 'Testing...', 'pending');
+            log('fetch', 'Starting fetch test...');
+            log('fetch', 'Signature: ' + signature);
+
+            const url = getServerUrl() + '/ping?signature=' + encodeURIComponent(signature) + '&timestamp=' + Date.now();
+            log('fetch', 'URL: ' + url);
+
+            fetch(url, {
+                method: 'GET',
+                headers: {
+                    'X-Ping-Signature': signature
+                }
+            })
+            .then(response => {
+                log('fetch', '✅ Fetch response received');
+                log('fetch', 'Status: ' + response.status);
+                return response.text();
+            })
+            .then(data => {
+                log('fetch', 'Response: ' + data);
+                setStatus('fetch', 'SUCCESS', 'success');
+                updateSummary();
+            })
+            .catch(error => {
+                log('fetch', '❌ Fetch failed');
+                log('fetch', 'Error: ' + error.message);
+                log('fetch', 'This is expected due to CORS or Mixed Content Security Policy');
+                setStatus('fetch', 'FAILED (Expected)', 'error');
+                updateSummary();
+            });
+        }
+
+        function updateSummary() {
+            const pixelStatus = document.getElementById('pixelStatus').className.includes('success');
+            const jsonpStatus = document.getElementById('jsonpStatus').className.includes('success');
+            const fetchStatus = document.getElementById('fetchStatus').className.includes('success');
+
+            let summary = '<h4>Test Results:</h4>';
+            summary += '<p>🖼️ Pixel Tracking: ' + (pixelStatus ? '✅ SUCCESS' : '❌ FAILED') + '</p>';
+            summary += '<p>📞 JSONP: ' + (jsonpStatus ? '✅ SUCCESS' : '❌ FAILED') + '</p>';
+            summary += '<p>🌐 Regular Fetch: ' + (fetchStatus ? '✅ SUCCESS' : '❌ FAILED (Expected)') + '</p>';
+
+            if (pixelStatus || jsonpStatus) {
+                summary += '<p><strong>✅ Iron-clad methods work! Server is reachable.</strong></p>';
+            } else {
+                summary += '<p><strong>⚠️ Check signature and server availability.</strong></p>';
+            }
+
+            document.getElementById('summary').innerHTML = summary;
+        }
+
+        // Auto-generate signature on page load
+        window.addEventListener('load', function() {
+            generateSignature();
+        });
+    </script>
+</body>
+</html> 
