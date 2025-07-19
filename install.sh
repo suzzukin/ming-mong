@@ -692,8 +692,29 @@ if [ "$AUTO_SSL" = "true" ]; then
         # Get Let's Encrypt certificate
         if get_letsencrypt_cert "$DOMAIN"; then
             echo -e "${GREEN}✅ Let's Encrypt certificate obtained successfully${NC}"
-            # Add TLS environment variables and volume mounts for Let's Encrypt
-            DOCKER_ARGS="-v /etc/letsencrypt:/etc/letsencrypt -e ENABLE_TLS=true -e TLS_CERT_FILE=/etc/letsencrypt/live/$DOMAIN/fullchain.pem -e TLS_KEY_FILE=/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+
+            # Create local certs directory
+            CERT_DIR="$TEMP_DIR/certs"
+            mkdir -p "$CERT_DIR"
+
+            # Copy certificates to local directory (readable by Docker)
+            echo -e "${YELLOW}Copying certificates to local directory...${NC}"
+            if sudo cp "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$CERT_DIR/fullchain.pem" && \
+               sudo cp "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$CERT_DIR/privkey.pem"; then
+                # Make certificates readable by current user
+                sudo chown $(id -u):$(id -g) "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem"
+                sudo chmod 644 "$CERT_DIR/fullchain.pem"
+                sudo chmod 600 "$CERT_DIR/privkey.pem"
+
+                # Add TLS environment variables with local cert paths
+                DOCKER_ARGS="-v $CERT_DIR:/certs -e ENABLE_TLS=true -e TLS_CERT_FILE=/certs/fullchain.pem -e TLS_KEY_FILE=/certs/privkey.pem"
+                echo -e "${GREEN}✅ Certificates copied successfully${NC}"
+            else
+                echo -e "${RED}Failed to copy Let's Encrypt certificates${NC}"
+                echo -e "${YELLOW}Falling back to self-signed certificates...${NC}"
+                AUTO_SSL="false"
+                ENABLE_TLS="true"
+            fi
         else
             echo -e "${RED}Failed to get Let's Encrypt certificate${NC}"
             echo -e "${YELLOW}Falling back to self-signed certificates...${NC}"
