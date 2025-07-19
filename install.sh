@@ -86,7 +86,7 @@ if [ -n "$CUSTOM_DOMAIN" ]; then
     AUTO_SSL="true"
     
     # Important DNS notice for custom domains
-    echo -e "${YELLOW}📋 IMPORTANT: Before proceeding, ensure that:${NC}"
+    echo -e "${YELLOW}IMPORTANT: Before proceeding, ensure that:${NC}"
     echo -e "${YELLOW}   • Domain $CUSTOM_DOMAIN points to this server's IP address${NC}"
     echo -e "${YELLOW}   • DNS A record is properly configured${NC}"
     echo -e "${YELLOW}   • Port 80 is accessible from the internet (required for certificate validation)${NC}"
@@ -104,13 +104,13 @@ if [ -n "$CUSTOM_DOMAIN" ]; then
         # Try to get server's external IP for comparison
         SERVER_IP=$(get_external_ip)
         if [ -n "$SERVER_IP" ] && [ "$DOMAIN_IP" = "$SERVER_IP" ]; then
-            echo -e "${GREEN}✅ DNS looks correct! Domain points to this server.${NC}"
+            echo -e "${GREEN}DNS looks correct! Domain points to this server.${NC}"
         elif [ -n "$SERVER_IP" ]; then
-            echo -e "${YELLOW}⚠️  Warning: Domain points to $DOMAIN_IP but server's external IP is $SERVER_IP${NC}"
+            echo -e "${YELLOW}Warning: Domain points to $DOMAIN_IP but server's external IP is $SERVER_IP${NC}"
             echo -e "${YELLOW}   This might cause certificate validation to fail.${NC}"
         fi
     else
-        echo -e "${RED}❌ Could not resolve domain $CUSTOM_DOMAIN${NC}"
+        echo -e "${RED}Could not resolve domain $CUSTOM_DOMAIN${NC}"
         echo -e "${RED}   Please check your DNS configuration before proceeding.${NC}"
     fi
     
@@ -273,10 +273,10 @@ install_certbot() {
 
     # Verify installation
     if command -v certbot &> /dev/null; then
-        echo -e "${GREEN}✅ Certbot installed successfully${NC}"
+        echo -e "${GREEN}Certbot installed successfully${NC}"
         return 0
     else
-        echo -e "${RED}❌ Certbot installation failed${NC}"
+        echo -e "${RED}Certbot installation failed${NC}"
         return 1
     fi
 }
@@ -313,22 +313,22 @@ get_letsencrypt_cert() {
     local marzban_node_stopped=false
 
     echo -e "${BLUE}Checking port 80...${NC}"
-    echo -e "${YELLOW}ℹ️  Port 80 is needed temporarily for SSL certificate issuance${NC}"
+    echo -e "${YELLOW}Port 80 is needed temporarily for SSL certificate issuance${NC}"
 
     # Check if marzban-node is running and can be stopped
     if command -v marzban-node &> /dev/null; then
         echo -e "${YELLOW}Found marzban-node, temporarily stopping it to free port 80...${NC}"
         if sudo marzban-node down; then
             marzban_node_stopped=true
-            echo -e "${GREEN}✅ marzban-node stopped successfully${NC}"
+            echo -e "${GREEN}marzban-node stopped successfully${NC}"
             sleep 3  # Wait for complete shutdown
         else
-            echo -e "${RED}❌ Failed to stop marzban-node${NC}"
+            echo -e "${RED}Failed to stop marzban-node${NC}"
             echo -e "${YELLOW}Trying alternative method...${NC}"
             # Alternative: try to stop via docker directly
             if sudo docker stop $(sudo docker ps -q --filter "label=com.docker.compose.project=marzban-node") 2>/dev/null; then
                 marzban_node_stopped=true
-                echo -e "${GREEN}✅ marzban-node containers stopped via docker${NC}"
+                echo -e "${GREEN}marzban-node containers stopped via docker${NC}"
                 sleep 3
             fi
         fi
@@ -346,9 +346,9 @@ get_letsencrypt_cert() {
 
     if [ $? -eq 0 ]; then
         success=true
-        echo -e "${GREEN}✅ Certificate obtained successfully for $domain${NC}"
+        echo -e "${GREEN}Certificate obtained successfully for $domain${NC}"
     else
-        echo -e "${RED}❌ Failed to obtain certificate for $domain${NC}"
+        echo -e "${RED}Failed to obtain certificate for $domain${NC}"
         echo -e "${YELLOW}This might be due to:${NC}"
         echo -e "${YELLOW}1. Port 80 is not accessible from the internet${NC}"
         echo -e "${YELLOW}2. Firewall is blocking port 80${NC}"
@@ -372,9 +372,9 @@ get_letsencrypt_cert() {
         # Launch restart command in background and detach completely
         nohup sudo marzban-node up -d >/dev/null 2>&1 &
         
-        echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
-        echo -e "${GREEN}📝 marzban-node restart initiated in background${NC}"
-        echo -e "${BLUE}💡 Note: marzban-node is starting up - this may take a moment${NC}"
+        echo -e "${GREEN}Port 80 has been returned to marzban-node${NC}"
+        echo -e "${GREEN}marzban-node restart initiated in background${NC}"
+        echo -e "${BLUE}Note: marzban-node is starting up - this may take a moment${NC}"
     fi
 
     if [ "$success" = true ]; then
@@ -426,7 +426,7 @@ if [ "$AUTO_SSL" = "true" ]; then
         echo -e "${GREEN}SSL: Automatic Let's Encrypt certificate via nip.io${NC}"
     fi
     if [ "$EUID" -ne 0 ]; then
-        echo -e "${YELLOW}⚠️  Auto-SSL requires sudo privileges for certbot${NC}"
+        echo -e "${YELLOW}Auto-SSL requires sudo privileges for certbot${NC}"
     fi
 else
     echo -e "${GREEN}SSL: Disabled (Plain WebSocket)${NC}"
@@ -663,7 +663,7 @@ if [ "$AUTO_SSL" = "true" ]; then
         
         # Get Let's Encrypt certificate for custom domain
         if get_letsencrypt_cert "$DOMAIN"; then
-            echo -e "${GREEN}✅ Let's Encrypt certificate obtained successfully${NC}"
+            echo -e "${GREEN}Let's Encrypt certificate obtained successfully${NC}"
 
             # Create local certs directory
             CERT_DIR="$TEMP_DIR/certs"
@@ -680,7 +680,7 @@ if [ "$AUTO_SSL" = "true" ]; then
 
                 # Add TLS environment variables with local cert paths
                 DOCKER_ARGS="-v $CERT_DIR:/certs -e ENABLE_TLS=true -e TLS_CERT_FILE=/certs/fullchain.pem -e TLS_KEY_FILE=/certs/privkey.pem"
-                echo -e "${GREEN}✅ Certificates copied successfully${NC}"
+                echo -e "${GREEN}Certificates copied successfully${NC}"
             else
                 echo -e "${RED}Failed to copy Let's Encrypt certificates${NC}"
                 echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
@@ -711,7 +711,7 @@ if [ "$AUTO_SSL" = "true" ]; then
 
             # Get Let's Encrypt certificate for nip.io domain
             if get_letsencrypt_cert "$DOMAIN"; then
-                echo -e "${GREEN}✅ Let's Encrypt certificate obtained successfully${NC}"
+                echo -e "${GREEN}Let's Encrypt certificate obtained successfully${NC}"
 
                 # Create local certs directory
                 CERT_DIR="$TEMP_DIR/certs"
@@ -728,7 +728,7 @@ if [ "$AUTO_SSL" = "true" ]; then
 
                     # Add TLS environment variables with local cert paths
                     DOCKER_ARGS="-v $CERT_DIR:/certs -e ENABLE_TLS=true -e TLS_CERT_FILE=/certs/fullchain.pem -e TLS_KEY_FILE=/certs/privkey.pem"
-                    echo -e "${GREEN}✅ Certificates copied successfully${NC}"
+                    echo -e "${GREEN}Certificates copied successfully${NC}"
                 else
                     echo -e "${RED}Failed to copy Let's Encrypt certificates${NC}"
                     echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
@@ -802,7 +802,7 @@ echo -e "${GREEN}WebSocket server is running on port $PORT${NC}"
 if [ "$AUTO_SSL" = "true" ] && [ -n "$DOMAIN" ]; then
     echo -e "${GREEN}WebSocket URL: wss://$DOMAIN:$PORT/ws${NC}"
     echo -e "${GREEN}Security: Let's Encrypt certificate (trusted by browsers)${NC}"
-    echo -e "${GREEN}✅ No certificate warnings - ready for production!${NC}"
+    echo -e "${GREEN}No certificate warnings - ready for production!${NC}"
 else
     echo -e "${GREEN}WebSocket URL: ws://$SERVER_IP:$PORT/ws${NC}"
     echo -e "${GREEN}Security: Plain WebSocket (WS)${NC}"

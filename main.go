@@ -214,7 +214,7 @@ func main() {
 </head>
 <body>
     <div class="container">
-        <h1 class="success">🔒 Ming-Mong Server</h1>
+        <h1 class="success">Ming-Mong Server</h1>
         <h2>Certificate Accepted Successfully!</h2>
         <p class="info">Your browser now trusts this server's certificate.</p>
         <p>WebSocket endpoint: <strong>wss://` + r.Host + `/ws</strong></p>
