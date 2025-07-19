@@ -16,10 +16,15 @@ TEMP_DIR="/tmp/ming-mong-$$"
 # Parse command line arguments
 PORT=""
 AUTO_SSL=""
+CUSTOM_DOMAIN=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         -p|--port)
             PORT="$2"
+            shift 2
+            ;;
+        -d|--domain)
+            CUSTOM_DOMAIN="$2"
             shift 2
             ;;
         --auto-ssl)
@@ -33,10 +38,17 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
-            echo "  -p, --port PORT    Set the port to listen on (default: $DEFAULT_PORT)"
-            echo "  --auto-ssl         Enable automatic Let's Encrypt certificate via nip.io (default)"
-            echo "  --no-ssl           Disable SSL (plain WebSocket only)"
-            echo "  -h, --help         Show this help message"
+            echo "  -p, --port PORT      Set the port to listen on (default: $DEFAULT_PORT)"
+            echo "  -d, --domain DOMAIN  Use custom domain for SSL certificate (if not specified, uses nip.io)"
+            echo "  --auto-ssl           Enable automatic Let's Encrypt certificate (default)"
+            echo "  --no-ssl             Disable SSL (plain WebSocket only)"
+            echo "  -h, --help           Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0                              # Use auto-SSL with nip.io domain"
+            echo "  $0 -d example.com               # Use custom domain example.com"
+            echo "  $0 -p 9090 -d my.domain.com    # Custom port and domain"
+            echo "  $0 --no-ssl                     # Disable SSL completely"
             exit 0
             ;;
         *)
@@ -58,10 +70,66 @@ if [ -z "$PORT" ]; then
     fi
 fi
 
+# Validate custom domain if provided
+if [ -n "$CUSTOM_DOMAIN" ]; then
+    # Basic domain validation
+    if [[ ! "$CUSTOM_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+        echo -e "${RED}Error: Invalid domain format '$CUSTOM_DOMAIN'${NC}"
+        echo -e "${RED}Please provide a valid domain name (e.g., example.com or sub.example.com)${NC}"
+        exit 1
+    fi
+    
+    # Force enable SSL when custom domain is provided
+    if [ "$AUTO_SSL" = "false" ]; then
+        echo -e "${YELLOW}Warning: Custom domain provided, automatically enabling SSL${NC}"
+    fi
+    AUTO_SSL="true"
+    
+    # Important DNS notice for custom domains
+    echo -e "${YELLOW}📋 IMPORTANT: Before proceeding, ensure that:${NC}"
+    echo -e "${YELLOW}   • Domain $CUSTOM_DOMAIN points to this server's IP address${NC}"
+    echo -e "${YELLOW}   • DNS A record is properly configured${NC}"
+    echo -e "${YELLOW}   • Port 80 is accessible from the internet (required for certificate validation)${NC}"
+    
+    # Check DNS resolution
+    echo -e "${BLUE}Checking DNS resolution for $CUSTOM_DOMAIN...${NC}"
+    DOMAIN_IP=$(nslookup $CUSTOM_DOMAIN | grep -A1 'Name:' | tail -1 | awk '{print $2}' 2>/dev/null || echo "")
+    if [ -z "$DOMAIN_IP" ]; then
+        DOMAIN_IP=$(dig +short $CUSTOM_DOMAIN 2>/dev/null | head -1)
+    fi
+    
+    if [ -n "$DOMAIN_IP" ]; then
+        echo -e "${GREEN}✓ Domain $CUSTOM_DOMAIN resolves to: $DOMAIN_IP${NC}"
+        
+        # Try to get server's external IP for comparison
+        SERVER_IP=$(get_external_ip)
+        if [ -n "$SERVER_IP" ] && [ "$DOMAIN_IP" = "$SERVER_IP" ]; then
+            echo -e "${GREEN}✅ DNS looks correct! Domain points to this server.${NC}"
+        elif [ -n "$SERVER_IP" ]; then
+            echo -e "${YELLOW}⚠️  Warning: Domain points to $DOMAIN_IP but server's external IP is $SERVER_IP${NC}"
+            echo -e "${YELLOW}   This might cause certificate validation to fail.${NC}"
+        fi
+    else
+        echo -e "${RED}❌ Could not resolve domain $CUSTOM_DOMAIN${NC}"
+        echo -e "${RED}   Please check your DNS configuration before proceeding.${NC}"
+    fi
+    
+    echo -e "${YELLOW}   Press any key to continue...${NC}"
+    read -n 1 -s
+fi
+
 # Set auto-SSL as default if not specified
 if [ -z "$AUTO_SSL" ]; then
     AUTO_SSL="true"
-    echo -e "${GREEN}Using automatic Let's Encrypt certificate via nip.io (default)${NC}"
+    if [ -n "$CUSTOM_DOMAIN" ]; then
+        echo -e "${GREEN}Using automatic Let's Encrypt certificate for domain: $CUSTOM_DOMAIN${NC}"
+    else
+        echo -e "${GREEN}Using automatic Let's Encrypt certificate via nip.io (default)${NC}"
+    fi
+elif [ "$AUTO_SSL" = "true" ] && [ -n "$CUSTOM_DOMAIN" ]; then
+    echo -e "${GREEN}Using automatic Let's Encrypt certificate for domain: $CUSTOM_DOMAIN${NC}"
+elif [ "$AUTO_SSL" = "true" ]; then
+    echo -e "${GREEN}Using automatic Let's Encrypt certificate via nip.io${NC}"
 fi
 
 # Validate port
@@ -295,17 +363,17 @@ get_letsencrypt_cert() {
 
     # Restart marzban-node if it was stopped
     if [ "$marzban_node_stopped" = true ]; then
-        echo -e "${BLUE}Restarting marzban-node...${NC}"
+        echo -e "${BLUE}Restarting marzban-node in background...${NC}"
         sleep 2  # Wait a bit before restart
-        if sudo marzban-node up -d; then
-            echo -e "${GREEN}✅ marzban-node restarted successfully${NC}"
+        if sudo marzban-node up -d &>/dev/null; then
+            echo -e "${GREEN}✅ marzban-node restarted successfully in background${NC}"
             echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
         else
             echo -e "${RED}❌ Failed to restart marzban-node${NC}"
             echo -e "${YELLOW}Please manually restart with: sudo marzban-node up -d${NC}"
             # Try alternative restart method
             echo -e "${YELLOW}Trying alternative restart method...${NC}"
-            if sudo docker start $(sudo docker ps -aq --filter "label=com.docker.compose.project=marzban-node") 2>/dev/null; then
+            if sudo docker start $(sudo docker ps -aq --filter "label=com.docker.compose.project=marzban-node") &>/dev/null; then
                 echo -e "${GREEN}✅ marzban-node containers started via docker${NC}"
                 echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
             else
@@ -358,7 +426,11 @@ run_docker() {
 echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
 echo -e "${GREEN}Port: $PORT${NC}"
 if [ "$AUTO_SSL" = "true" ]; then
-    echo -e "${GREEN}SSL: Automatic Let's Encrypt certificate via nip.io${NC}"
+    if [ -n "$CUSTOM_DOMAIN" ]; then
+        echo -e "${GREEN}SSL: Automatic Let's Encrypt certificate for domain: $CUSTOM_DOMAIN${NC}"
+    else
+        echo -e "${GREEN}SSL: Automatic Let's Encrypt certificate via nip.io${NC}"
+    fi
     if [ "$EUID" -ne 0 ]; then
         echo -e "${YELLOW}⚠️  Auto-SSL requires sudo privileges for certbot${NC}"
     fi
@@ -590,20 +662,12 @@ DOCKER_ARGS=""
 DOMAIN=""
 
 if [ "$AUTO_SSL" = "true" ]; then
-    # Get external IP and create nip.io domain
-    echo -e "${BLUE}Detecting external IP address...${NC}"
-    EXTERNAL_IP=$(get_external_ip)
-
-    if [ -z "$EXTERNAL_IP" ]; then
-        echo -e "${RED}Failed to detect external IP address${NC}"
-        echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
-        AUTO_SSL="false"
-    else
-        DOMAIN="$EXTERNAL_IP.nip.io"
-        echo -e "${GREEN}External IP: $EXTERNAL_IP${NC}"
-        echo -e "${GREEN}Domain: $DOMAIN${NC}"
-
-        # Get Let's Encrypt certificate
+    # Use custom domain if provided, otherwise use nip.io
+    if [ -n "$CUSTOM_DOMAIN" ]; then
+        DOMAIN="$CUSTOM_DOMAIN"
+        echo -e "${GREEN}Using custom domain: $DOMAIN${NC}"
+        
+        # Get Let's Encrypt certificate for custom domain
         if get_letsencrypt_cert "$DOMAIN"; then
             echo -e "${GREEN}✅ Let's Encrypt certificate obtained successfully${NC}"
 
@@ -629,9 +693,62 @@ if [ "$AUTO_SSL" = "true" ]; then
                 AUTO_SSL="false"
             fi
         else
-            echo -e "${RED}Failed to get Let's Encrypt certificate${NC}"
+            echo -e "${RED}Failed to get Let's Encrypt certificate for $DOMAIN${NC}"
+            echo -e "${YELLOW}Please check that:${NC}"
+            echo -e "${YELLOW}1. Domain $DOMAIN points to this server${NC}"
+            echo -e "${YELLOW}2. Port 80 is accessible from the internet${NC}"
+            echo -e "${YELLOW}3. Firewall allows HTTP traffic${NC}"
             echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
             AUTO_SSL="false"
+        fi
+    else
+        # No custom domain provided - use nip.io with auto-detected IP
+        echo -e "${BLUE}Detecting external IP address for nip.io domain...${NC}"
+        EXTERNAL_IP=$(get_external_ip)
+
+        if [ -z "$EXTERNAL_IP" ]; then
+            echo -e "${RED}Failed to detect external IP address${NC}"
+            echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
+            AUTO_SSL="false"
+        else
+            DOMAIN="$EXTERNAL_IP.nip.io"
+            echo -e "${GREEN}External IP: $EXTERNAL_IP${NC}"
+            echo -e "${GREEN}Domain: $DOMAIN${NC}"
+
+            # Get Let's Encrypt certificate for nip.io domain
+            if get_letsencrypt_cert "$DOMAIN"; then
+                echo -e "${GREEN}✅ Let's Encrypt certificate obtained successfully${NC}"
+
+                # Create local certs directory
+                CERT_DIR="$TEMP_DIR/certs"
+                mkdir -p "$CERT_DIR"
+
+                # Copy certificates to local directory (readable by Docker)
+                echo -e "${YELLOW}Copying certificates to local directory...${NC}"
+                if sudo cp "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$CERT_DIR/fullchain.pem" && \
+                   sudo cp "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$CERT_DIR/privkey.pem"; then
+                    # Make certificates readable by current user
+                    sudo chown $(id -u):$(id -g) "$CERT_DIR/fullchain.pem" "$CERT_DIR/privkey.pem"
+                    sudo chmod 644 "$CERT_DIR/fullchain.pem"
+                    sudo chmod 600 "$CERT_DIR/privkey.pem"
+
+                    # Add TLS environment variables with local cert paths
+                    DOCKER_ARGS="-v $CERT_DIR:/certs -e ENABLE_TLS=true -e TLS_CERT_FILE=/certs/fullchain.pem -e TLS_KEY_FILE=/certs/privkey.pem"
+                    echo -e "${GREEN}✅ Certificates copied successfully${NC}"
+                else
+                    echo -e "${RED}Failed to copy Let's Encrypt certificates${NC}"
+                    echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
+                    AUTO_SSL="false"
+                fi
+            else
+                echo -e "${RED}Failed to get Let's Encrypt certificate for $DOMAIN${NC}"
+                echo -e "${YELLOW}This might be due to:${NC}"
+                echo -e "${YELLOW}1. Port 80 is not accessible from the internet${NC}"
+                echo -e "${YELLOW}2. Firewall is blocking port 80${NC}"
+                echo -e "${YELLOW}3. Network issues${NC}"
+                echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
+                AUTO_SSL="false"
+            fi
         fi
     fi
 fi
@@ -675,11 +792,13 @@ else
     fi
 fi
 
-# Get server IP address
-SERVER_IP=$(hostname -I | awk '{print $1}')
+# Get server IP address if not already defined
 if [ -z "$SERVER_IP" ]; then
-    # Fallback to localhost if we can't determine IP
-    SERVER_IP="localhost"
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    if [ -z "$SERVER_IP" ]; then
+        # Fallback to localhost if we can't determine IP
+        SERVER_IP="localhost"
+    fi
 fi
 
 echo -e "${GREEN}=== Installation Complete ===${NC}"
