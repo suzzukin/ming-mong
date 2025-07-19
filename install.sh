@@ -306,67 +306,23 @@ get_letsencrypt_cert() {
 
     # Check if marzban-node is running and can be stopped
     if command -v marzban-node &> /dev/null; then
-        echo -e "${YELLOW}Found marzban-node, checking if it's using port 80...${NC}"
-        # Check multiple ways if marzban-node is using port 80
-        if lsof -i :80 | grep -q python || \
-           docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -q ":80->" || \
-           sudo docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -q ":80->" || \
-           netstat -tulpn 2>/dev/null | grep -q ":80.*python" || \
-           ss -tulpn 2>/dev/null | grep -q ":80.*python"; then
-            echo -e "${YELLOW}Stopping marzban-node to free port 80...${NC}"
-            if sudo marzban-node down; then
-                marzban_node_stopped=true
-                echo -e "${GREEN}✅ marzban-node stopped successfully${NC}"
-                sleep 3  # Wait for complete shutdown
-            else
-                echo -e "${RED}❌ Failed to stop marzban-node${NC}"
-                echo -e "${YELLOW}Trying alternative method...${NC}"
-                # Alternative: try to stop via docker directly
-                if sudo docker stop $(sudo docker ps -q --filter "label=com.docker.compose.project=marzban-node") 2>/dev/null; then
-                    marzban_node_stopped=true
-                    echo -e "${GREEN}✅ marzban-node containers stopped via docker${NC}"
-                    sleep 3
-                fi
-            fi
+        echo -e "${YELLOW}Found marzban-node, temporarily stopping it to free port 80...${NC}"
+        if sudo marzban-node down; then
+            marzban_node_stopped=true
+            echo -e "${GREEN}✅ marzban-node stopped successfully${NC}"
+            sleep 3  # Wait for complete shutdown
         else
-            echo -e "${GREEN}✅ marzban-node is not using port 80, no need to stop${NC}"
-        fi
-    fi
-
-    # Check if port 80 is still occupied after marzban-node stop
-    if lsof -i :80 &> /dev/null; then
-        echo -e "${YELLOW}Port 80 is still occupied, stopping remaining services...${NC}"
-        port_80_pids=$(lsof -ti :80)
-
-        # First try graceful shutdown
-        for pid in $port_80_pids; do
-            if kill -TERM $pid 2>/dev/null; then
-                echo -e "${YELLOW}  Stopped process $pid${NC}"
+            echo -e "${RED}❌ Failed to stop marzban-node${NC}"
+            echo -e "${YELLOW}Trying alternative method...${NC}"
+            # Alternative: try to stop via docker directly
+            if sudo docker stop $(sudo docker ps -q --filter "label=com.docker.compose.project=marzban-node") 2>/dev/null; then
+                marzban_node_stopped=true
+                echo -e "${GREEN}✅ marzban-node containers stopped via docker${NC}"
+                sleep 3
             fi
-        done
-
-        # Wait a bit for graceful shutdown
-        sleep 2
-
-        # Force kill if still running
-        if lsof -i :80 &> /dev/null; then
-            port_80_pids=$(lsof -ti :80)
-            for pid in $port_80_pids; do
-                if kill -KILL $pid 2>/dev/null; then
-                    echo -e "${YELLOW}  Force killed process $pid${NC}"
-                fi
-            done
         fi
-
-        # Final check
-        if lsof -i :80 &> /dev/null; then
-            echo -e "${RED}Unable to free port 80. Please stop services manually:${NC}"
-            lsof -i :80
-            return 1
-        fi
-
-        port_80_services="$port_80_pids"
     fi
+
 
     # Get certificate using standalone mode with sudo
     local success=false
