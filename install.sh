@@ -365,22 +365,26 @@ get_letsencrypt_cert() {
     if [ "$marzban_node_stopped" = true ]; then
         echo -e "${BLUE}Restarting marzban-node in background...${NC}"
         sleep 2  # Wait a bit before restart
-        if sudo marzban-node up -d &>/dev/null; then
-            echo -e "${GREEN}✅ marzban-node restarted successfully in background${NC}"
-            echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
-        else
-            echo -e "${RED}❌ Failed to restart marzban-node${NC}"
-            echo -e "${YELLOW}Please manually restart with: sudo marzban-node up -d${NC}"
-            # Try alternative restart method
-            echo -e "${YELLOW}Trying alternative restart method...${NC}"
-            if sudo docker start $(sudo docker ps -aq --filter "label=com.docker.compose.project=marzban-node") &>/dev/null; then
-                echo -e "${GREEN}✅ marzban-node containers started via docker${NC}"
-                echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
+        
+        # Start marzban-node with timeout to avoid hanging
+        echo -e "${YELLOW}Starting marzban-node with 30 second timeout...${NC}"
+        (
+            timeout 30 sudo marzban-node up -d &>/dev/null
+            exit_code=$?
+            if [ $exit_code -eq 0 ]; then
+                echo -e "${GREEN}✅ marzban-node restarted successfully${NC}" >&2
+            elif [ $exit_code -eq 124 ]; then
+                echo -e "${YELLOW}⏰ marzban-node restart timed out${NC}" >&2
             else
-                echo -e "${RED}❌ Alternative restart also failed${NC}"
-                echo -e "${YELLOW}You may need to manually restart marzban-node later${NC}"
+                echo -e "${YELLOW}❌ marzban-node restart failed${NC}" >&2
             fi
-        fi
+        ) &
+        
+        # Don't wait for the background process, continue immediately
+        sleep 1
+        echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
+        echo -e "${BLUE}📝 marzban-node is restarting in background...${NC}"
+        echo -e "${YELLOW}💡 If needed, you can manually restart later with: sudo marzban-node up -d${NC}"
     fi
 
     if [ "$success" = true ]; then
