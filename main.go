@@ -224,6 +224,8 @@ func main() {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET")
 		w.Header().Set("X-Ping-Status", "ok") // Status in header
 		w.WriteHeader(http.StatusOK)
 
@@ -279,6 +281,8 @@ func main() {
 		// Valid signature - return JSONP response
 		w.Header().Set("Content-Type", "application/javascript")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET")
 		w.WriteHeader(http.StatusOK)
 
 		response := `{"status":"ok","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`
