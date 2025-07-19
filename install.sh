@@ -32,13 +32,21 @@ while [[ $# -gt 0 ]]; do
             ENABLE_TLS="true"
             shift
             ;;
+        --no-tls|--no-ssl)
+            ENABLE_TLS="false"
+            AUTO_SSL="false"
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
             echo "  -p, --port PORT    Set the port to listen on (default: $DEFAULT_PORT)"
             echo "  --tls, --ssl       Enable TLS/SSL (WSS) with self-signed certificates"
-            echo "  --auto-ssl         Enable TLS with automatic Let's Encrypt certificate via nip.io"
+            echo "  --auto-ssl         Enable TLS with automatic Let's Encrypt certificate via nip.io (default behavior)"
+            echo "  --no-tls, --no-ssl Disable TLS/SSL (plain WS only)"
             echo "  -h, --help         Show this help message"
+            echo ""
+            echo "Note: By default, the server will use automatic Let's Encrypt certificate via nip.io"
             exit 0
             ;;
         *)
@@ -60,27 +68,11 @@ if [ -z "$PORT" ]; then
     fi
 fi
 
-# Ask about TLS if not specified
+# Set auto-SSL as default if not specified
 if [ -z "$ENABLE_TLS" ] && [ -z "$AUTO_SSL" ]; then
-    echo -e "${YELLOW}Choose TLS/SSL option:${NC}"
-    echo -e "${YELLOW}1) No TLS (plain HTTP/WS)${NC}"
-    echo -e "${YELLOW}2) Self-signed certificates${NC}"
-    echo -e "${YELLOW}3) Automatic Let's Encrypt certificate via nip.io${NC}"
-    echo -e "${YELLOW}Enter choice (1-3) [1]: ${NC}"
-    read -r tls_choice
-
-    case $tls_choice in
-        2)
-            ENABLE_TLS="true"
-            ;;
-        3)
-            AUTO_SSL="true"
-            ENABLE_TLS="true"
-            ;;
-        *)
-            ENABLE_TLS="false"
-            ;;
-    esac
+    AUTO_SSL="true"
+    ENABLE_TLS="true"
+    echo -e "${GREEN}Using automatic Let's Encrypt certificate via nip.io (default)${NC}"
 fi
 
 # Validate port
@@ -309,19 +301,35 @@ get_letsencrypt_cert() {
     local marzban_node_stopped=false
 
     echo -e "${BLUE}Checking port 80...${NC}"
+    echo -e "${YELLOW}ℹ️  Port 80 is needed temporarily for SSL certificate issuance${NC}"
+    echo -e "${YELLOW}ℹ️  Any services using port 80 will be stopped and restarted automatically${NC}"
 
     # Check if marzban-node is running and can be stopped
     if command -v marzban-node &> /dev/null; then
         echo -e "${YELLOW}Found marzban-node, checking if it's using port 80...${NC}"
-        if lsof -i :80 | grep -q python || docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -q ":80->"; then
+        # Check multiple ways if marzban-node is using port 80
+        if lsof -i :80 | grep -q python || \
+           docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -q ":80->" || \
+           sudo docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -q ":80->" || \
+           netstat -tulpn 2>/dev/null | grep -q ":80.*python" || \
+           ss -tulpn 2>/dev/null | grep -q ":80.*python"; then
             echo -e "${YELLOW}Stopping marzban-node to free port 80...${NC}"
-            if marzban-node down; then
+            if sudo marzban-node down; then
                 marzban_node_stopped=true
                 echo -e "${GREEN}✅ marzban-node stopped successfully${NC}"
                 sleep 3  # Wait for complete shutdown
             else
                 echo -e "${RED}❌ Failed to stop marzban-node${NC}"
+                echo -e "${YELLOW}Trying alternative method...${NC}"
+                # Alternative: try to stop via docker directly
+                if sudo docker stop $(sudo docker ps -q --filter "label=com.docker.compose.project=marzban-node") 2>/dev/null; then
+                    marzban_node_stopped=true
+                    echo -e "${GREEN}✅ marzban-node containers stopped via docker${NC}"
+                    sleep 3
+                fi
             fi
+        else
+            echo -e "${GREEN}✅ marzban-node is not using port 80, no need to stop${NC}"
         fi
     fi
 
@@ -390,11 +398,22 @@ get_letsencrypt_cert() {
     # Restart marzban-node if it was stopped
     if [ "$marzban_node_stopped" = true ]; then
         echo -e "${BLUE}Restarting marzban-node...${NC}"
-        if marzban-node up -d; then
+        sleep 2  # Wait a bit before restart
+        if sudo marzban-node up -d; then
             echo -e "${GREEN}✅ marzban-node restarted successfully${NC}"
+            echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
         else
             echo -e "${RED}❌ Failed to restart marzban-node${NC}"
-            echo -e "${YELLOW}Please manually restart with: marzban-node up -d${NC}"
+            echo -e "${YELLOW}Please manually restart with: sudo marzban-node up -d${NC}"
+            # Try alternative restart method
+            echo -e "${YELLOW}Trying alternative restart method...${NC}"
+            if sudo docker start $(sudo docker ps -aq --filter "label=com.docker.compose.project=marzban-node") 2>/dev/null; then
+                echo -e "${GREEN}✅ marzban-node containers started via docker${NC}"
+                echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
+            else
+                echo -e "${RED}❌ Alternative restart also failed${NC}"
+                echo -e "${YELLOW}You may need to manually restart marzban-node later${NC}"
+            fi
         fi
     fi
 
@@ -441,7 +460,7 @@ run_docker() {
 echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
 echo -e "${GREEN}Port: $PORT${NC}"
 if [ "$AUTO_SSL" = "true" ]; then
-    echo -e "${GREEN}TLS/SSL: Automatic Let's Encrypt via nip.io${NC}"
+    echo -e "${GREEN}TLS/SSL: Automatic Let's Encrypt via nip.io (default)${NC}"
     if [ "$EUID" -ne 0 ]; then
         echo -e "${YELLOW}⚠️  Auto-SSL requires sudo privileges for certbot${NC}"
     fi
@@ -789,20 +808,14 @@ echo -e "${GREEN}WebSocket server is running on port $PORT${NC}"
 # Show correct URL based on TLS setting
 if [ "$AUTO_SSL" = "true" ] && [ -n "$DOMAIN" ]; then
     echo -e "${GREEN}WebSocket URL: wss://$DOMAIN:$PORT/ws${NC}"
-    echo -e "${GREEN}Pixel URL: https://$DOMAIN:$PORT/pixel${NC}"
-    echo -e "${GREEN}JSONP URL: https://$DOMAIN:$PORT/jsonp${NC}"
     echo -e "${GREEN}Security: Let's Encrypt certificate (trusted by browsers)${NC}"
     echo -e "${GREEN}✅ No certificate warnings - ready for production!${NC}"
 elif [ "$ENABLE_TLS" = "true" ]; then
     echo -e "${GREEN}WebSocket URL: wss://$SERVER_IP:$PORT/ws${NC}"
-    echo -e "${GREEN}Pixel URL: https://$SERVER_IP:$PORT/pixel${NC}"
-    echo -e "${GREEN}JSONP URL: https://$SERVER_IP:$PORT/jsonp${NC}"
     echo -e "${GREEN}Security: Self-signed certificate${NC}"
     echo -e "${YELLOW}Note: Self-signed certificate will show security warnings in browsers${NC}"
 else
     echo -e "${GREEN}WebSocket URL: ws://$SERVER_IP:$PORT/ws${NC}"
-    echo -e "${GREEN}Pixel URL: http://$SERVER_IP:$PORT/pixel${NC}"
-    echo -e "${GREEN}JSONP URL: http://$SERVER_IP:$PORT/jsonp${NC}"
     echo -e "${GREEN}Security: Plain WebSocket (WS)${NC}"
 fi
 
@@ -834,22 +847,10 @@ if run_docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "^${CONTAINE
     fi
 
     echo ""
-    echo -e "${BLUE}To generate a signature and test:${NC}"
+    echo -e "${BLUE}To generate a signature and test the WebSocket:${NC}"
     echo -e "${BLUE}DATE=\$(date -u +\"%Y-%m-%d\")${NC}"
     echo -e "${BLUE}SIGNATURE=\$(echo -n \"\$DATE\"ming-mong-server | sha256sum | cut -c1-16)${NC}"
     echo -e "${BLUE}echo '{\"type\":\"ping\",\"signature\":\"'\$SIGNATURE'\",\"timestamp\":\"'\$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")'\"}' | wscat -c $WS_URL${NC}"
-    echo ""
-    echo -e "${BLUE}Or use browser JavaScript (iron-clad methods):${NC}"
-    echo -e "${BLUE}// Method 1: Pixel tracking${NC}"
-    echo -e "${BLUE}const img = new Image();${NC}"
-    echo -e "${BLUE}img.onload = () => console.log('Server OK');${NC}"
-    echo -e "${BLUE}img.src = 'http://$SERVER_IP:$PORT/pixel?signature=SIGNATURE';${NC}"
-    echo ""
-    echo -e "${BLUE}// Method 2: JSONP${NC}"
-    echo -e "${BLUE}window.callback = (data) => console.log('Response:', data);${NC}"
-    echo -e "${BLUE}const script = document.createElement('script');${NC}"
-    echo -e "${BLUE}script.src = 'http://$SERVER_IP:$PORT/jsonp?signature=SIGNATURE&callback=callback';${NC}"
-    echo -e "${BLUE}document.head.appendChild(script);${NC}"
 else
     echo -e "${RED}✗ Container is not running${NC}"
     echo -e "${YELLOW}Container logs:${NC}"

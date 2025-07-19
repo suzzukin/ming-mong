@@ -13,20 +13,17 @@ A minimal WebSocket server with **stealth mode** and **signature-based authentic
 ## 🏗️ Quick Install
 
 ```bash
-# Basic installation (WS)
+# Recommended installation (WSS with automatic Let's Encrypt SSL)
 curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash
 
-# With custom port
-curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- -p 9090
+# With custom port (SSL enabled by default)
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- -p 443
 
-# With automatic Let's Encrypt certificate (RECOMMENDED)
-curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- --auto-ssl
+# Without SSL (WS only)
+curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- --no-tls
 
 # With self-signed certificates
 curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- --tls
-
-# With custom port and auto SSL
-curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh | bash -s -- -p 443 --auto-ssl
 ```
 
 ## 📋 WebSocket Protocol
@@ -35,12 +32,12 @@ curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh
 
 **Plain WebSocket (WS):**
 ```
-ws://your-server-ip:8080/ws
+ws://your-server-ip:8443/ws
 ```
 
 **Secure WebSocket (WSS):**
 ```
-wss://your-server-ip:8080/ws
+wss://your-server-ip:8443/ws
 ```
 
 **Note:** Replace `your-server-ip` with your actual server IP address (e.g., `192.168.1.100` or `localhost` for local testing)
@@ -113,7 +110,7 @@ async function pingServer(useSSL = false) {
 
     const signature = await generateSignature();
     const protocol = useSSL ? 'wss' : 'ws';
-    const ws = new WebSocket(`${protocol}://your-server-ip:8080/ws`);
+    const ws = new WebSocket(`${protocol}://your-server-ip:8443/ws`);
 
     ws.onopen = () => {
         console.log(`WebSocket connected (${protocol.toUpperCase()})`);
@@ -166,7 +163,7 @@ function generateSignature() {
 }
 
 function pingServer() {
-    const ws = new WebSocket('ws://your-server-ip:8080/ws');
+    const ws = new WebSocket('ws://your-server-ip:8443/ws');
 
     ws.on('open', () => {
         console.log('WebSocket connected');
@@ -216,7 +213,7 @@ def generate_signature():
     return hashlib.sha256(data.encode()).hexdigest()[:16]
 
 async def ping_server():
-    uri = "ws://your-server-ip:8080/ws"
+    uri = "ws://your-server-ip:8443/ws"
 
     async with websockets.connect(uri) as websocket:
         message = {
@@ -262,7 +259,7 @@ func generateSignature() string {
 }
 
 func main() {
-    conn, _, err := websocket.DefaultDialer.Dial("ws://your-server-ip:8080/ws", nil)
+    conn, _, err := websocket.DefaultDialer.Dial("ws://your-server-ip:8443/ws", nil)
     if err != nil {
         log.Fatal("dial:", err)
     }
@@ -304,7 +301,7 @@ function generateSignature() {
 }
 
 $connector = new Connector();
-$connector('ws://your-server-ip:8080/ws')
+$connector('ws://your-server-ip:8443/ws')
     ->then(function (WebSocket $conn) {
         $message = json_encode([
             'type' => 'ping',
@@ -347,7 +344,7 @@ EOF
 )
 
 # Send via wscat
-echo "$MESSAGE" | wscat -c ws://your-server-ip:8080/ws
+echo "$MESSAGE" | wscat -c ws://your-server-ip:8443/ws
 ```
 
 ## 🚀 Testing
@@ -358,13 +355,13 @@ echo "$MESSAGE" | wscat -c ws://your-server-ip:8080/ws
 npm install -g wscat
 
 # Connect to plain WebSocket
-wscat -c ws://your-server-ip:8080/ws
+wscat -c ws://your-server-ip:8443/ws
 
 # Connect to secure WebSocket
-wscat -c wss://your-server-ip:8080/ws
+wscat -c wss://your-server-ip:8443/ws
 
 # For self-signed certificates (ignore SSL errors)
-wscat -c wss://your-server-ip:8080/ws --no-check
+wscat -c wss://your-server-ip:8443/ws --no-check
 
 # Then send (replace with actual signature):
 {"type":"ping","signature":"a1b2c3d4e5f6g7h8","timestamp":"2024-01-15T10:30:45Z"}
@@ -383,7 +380,7 @@ echo "Today's signature: $SIGNATURE"
 ## 🔧 Configuration
 
 ### Environment Variables
-- `PORT` - Server port (default: 8080)
+- `PORT` - Server port (default: 8443)
 - `ENABLE_TLS` - Enable TLS/SSL (true/false, default: false)
 - `TLS_CERT_FILE` - Path to TLS certificate file (default: server.crt)
 - `TLS_KEY_FILE` - Path to TLS private key file (default: server.key)
@@ -417,18 +414,12 @@ curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh
 # Your server IP: 192.168.1.100
 # Domain: 192.168.1.100.nip.io
 # URLs:
-#   - https://192.168.1.100.nip.io/pixel (iron-clad method)
-#   - https://192.168.1.100.nip.io/jsonp (iron-clad method)
 #   - wss://192.168.1.100.nip.io/ws
 ```
 
 **Usage from HTTPS pages:**
 ```javascript
-// Iron-clad method - works immediately, no certificate warnings!
-const img = new Image();
-img.onload = () => console.log('Server OK');
-img.src = 'https://192.168.1.100.nip.io/pixel?signature=your_signature';
-
+// Secure WebSocket connection with Let's Encrypt SSL
 const ws = new WebSocket('wss://192.168.1.100.nip.io/ws');
 ```
 
@@ -451,83 +442,19 @@ docker run -d -p 443:443 \
   ming-mong
 ```
 
-### **Option 2: Iron-Clad Communication (CORS/SSL-Free)**
 
-**🛡️ Maximum Reliability Methods (Works Everywhere):**
 
-```javascript
-// Method 1: Pixel Tracking (★★★★★ Reliability)
-function pingServer(signature) {
-    const img = new Image();
-    img.onload = () => console.log('✅ Server responded');
-    img.onerror = () => console.log('❌ Server failed');
-    img.src = `http://82.148.17.45:8080/pixel?signature=${signature}&timestamp=${Date.now()}`;
-}
-
-// Method 2: JSONP (★★★★☆ Reliability)
-function pingServerJSONP(signature) {
-    window.callback = (data) => console.log('Response:', data);
-    const script = document.createElement('script');
-    script.src = `http://82.148.17.45:8080/jsonp?signature=${signature}&callback=callback`;
-    document.head.appendChild(script);
-}
-```
-
-**🧪 Test Methods:**
-Use the JavaScript examples above directly in your browser console.
-
-**Why These Methods Work:**
-- 🖼️ **Pixel Tracking**: Uses `<img>` tag - no CORS restrictions
-- 📞 **JSONP**: Uses `<script>` tag - bypasses all security policies  
-- 🌐 **Works from HTTPS pages**: No Mixed Content Security issues
-- 🔄 **Works everywhere**: All browsers, all configurations
-
-### **Option 3: Mixed Mode (HTTP + HTTPS)**
-
-Use both HTTP and HTTPS endpoints:
-
-```bash
-# Install with TLS for WSS support
-./install.sh --tls
-
-# Server will support both:
-# - http://192.168.1.100:8080/pixel (HTTP iron-clad)
-# - http://192.168.1.100:8080/jsonp (HTTP iron-clad)
-# - https://192.168.1.100:8080/pixel (HTTPS iron-clad)
-# - https://192.168.1.100:8080/jsonp (HTTPS iron-clad)
-# - ws://192.168.1.100:8080/ws (WebSocket)
-# - wss://192.168.1.100:8080/ws (Secure WebSocket)
-```
-
-**Usage:**
-```javascript
-// Iron-clad methods for any page (HTTP/HTTPS)
-function pingServer(serverIP, signature) {
-    // Method 1: Pixel tracking (most reliable)
-    const img = new Image();
-    img.onload = () => console.log('✅ Server OK');
-    img.onerror = () => console.log('❌ Server failed');
-    img.src = `http://${serverIP}:8080/pixel?signature=${signature}`;
-    
-    // Method 2: JSONP (with response data)
-    window.callback = (data) => console.log('Server response:', data);
-    const script = document.createElement('script');
-    script.src = `http://${serverIP}:8080/jsonp?signature=${signature}&callback=callback`;
-    document.head.appendChild(script);
-}
-```
-
-### Docker Examples
+### **Option 3: Docker Examples**
 
 **Plain WebSocket (WS):**
 ```bash
-docker run -d -p 8080:8080 -e PORT=8080 ming-mong
+docker run -d -p 8443:8443 -e PORT=8443 ming-mong
 ```
 
 **Secure WebSocket (WSS) with custom certificates:**
 ```bash
-docker run -d -p 8080:8080 \
-  -e PORT=8080 \
+docker run -d -p 8443:8443 \
+  -e PORT=8443 \
   -e ENABLE_TLS=true \
   -e TLS_CERT_FILE=/app/certs/server.crt \
   -e TLS_KEY_FILE=/app/certs/server.key \
@@ -548,8 +475,8 @@ openssl req -new -x509 -key certs/server.key -out certs/server.crt -days 365 \
   -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
 
 # Run with TLS
-docker run -d -p 8080:8080 \
-  -e PORT=8080 \
+docker run -d -p 8443:8443 \
+  -e PORT=8443 \
   -e ENABLE_TLS=true \
   -v $(pwd)/certs:/app/certs \
   ming-mong
@@ -603,7 +530,7 @@ go build -o ming-mong
 
 # Or with Docker
 docker build -t ming-mong .
-docker run -d -p 8080:8080 ming-mong
+docker run -d -p 8443:8443 ming-mong
 ```
 
 ## 🔧 Troubleshooting
@@ -641,7 +568,7 @@ curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh
 ```
 
 **Step 2: Accept certificate in browser**
-1. Open `https://localhost:8080` in your browser
+1. Open `https://localhost:8443` in your browser
 2. You'll see a security warning like "Your connection is not private"
 3. Click "Advanced" → "Proceed to localhost (unsafe)"
 4. You should see "Certificate Accepted Successfully!" page
@@ -650,7 +577,7 @@ curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh
 **Step 3: Test WebSocket connection**
 ```javascript
 // This will work after accepting the certificate
-const ws = new WebSocket('wss://localhost:8080/ws');
+const ws = new WebSocket('wss://localhost:8443/ws');
 ```
 
 **Step 4: Use test page**
@@ -665,19 +592,19 @@ curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/diagnose.s
 ### Common Issues and Solutions
 
 **Problem: "Could not connect to the server"**
-- ✅ **Check if server is running**: `docker ps` or `lsof -i :8080`
-- ✅ **Try WS first**: Use `ws://localhost:8080/ws` to test basic connectivity
-- ✅ **Check port**: Make sure port 8080 is not blocked by firewall
+- ✅ **Check if server is running**: `docker ps` or `lsof -i :8443`
+- ✅ **Try WS first**: Use `ws://localhost:8443/ws` to test basic connectivity
+- ✅ **Check port**: Make sure port 8443 is not blocked by firewall
 
 **Problem: "SSL error has occurred"**
 - ✅ **Server not running with TLS**: Make sure you used `--tls` flag during installation
-- ✅ **Certificate not accepted**: Open `https://localhost:8080` and accept the warning
+- ✅ **Certificate not accepted**: Open `https://localhost:8443` and accept the warning
 - ✅ **Wrong protocol**: Use `wss://` for TLS-enabled servers
 
 **Problem: "WebSocket connection failed"**
 - ✅ **Mixed content**: If testing from HTTPS page, you must use WSS
 - ✅ **Certificate issues**: Clear browser cache and re-accept certificate
-- ✅ **Firewall**: Check if port 8080 is allowed through firewall
+- ✅ **Firewall**: Check if port 8443 is allowed through firewall
 
 **Alternative: Use Chrome with disabled security (testing only)**
 ```bash

@@ -167,7 +167,7 @@ func main() {
 	// Get port from environment variable
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8443"
 	}
 
 	// Get TLS settings from environment variables
@@ -182,112 +182,6 @@ func main() {
 
 	// Setup WebSocket handler
 	http.HandleFunc("/ws", handleWebSocket)
-
-	// Add pixel tracking endpoint (iron-clad CORS bypass)
-	http.HandleFunc("/pixel", func(w http.ResponseWriter, r *http.Request) {
-		// Only allow GET requests
-		if r.Method != http.MethodGet {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Get signature from query parameters
-		signature := r.URL.Query().Get("signature")
-		if signature == "" {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Validate signature
-		if !isValidSignature(signature) {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Valid signature - return 1x1 transparent PNG
-		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Pragma", "no-cache")
-		w.Header().Set("Expires", "0")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET")
-		w.Header().Set("X-Ping-Status", "ok") // Status in header
-		w.WriteHeader(http.StatusOK)
-
-		// 1x1 transparent PNG (43 bytes)
-		transparentPNG := []byte{
-			0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
-			0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-			0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00,
-			0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
-			0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4,
-		}
-		w.Write(transparentPNG)
-	})
-
-	// Add JSONP endpoint for callback support
-	http.HandleFunc("/jsonp", func(w http.ResponseWriter, r *http.Request) {
-		// Only allow GET requests
-		if r.Method != http.MethodGet {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Get parameters
-		signature := r.URL.Query().Get("signature")
-		callback := r.URL.Query().Get("callback")
-
-		if signature == "" || callback == "" {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Validate signature
-		if !isValidSignature(signature) {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Valid signature - return JSONP response
-		w.Header().Set("Content-Type", "application/javascript")
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET")
-		w.WriteHeader(http.StatusOK)
-
-		response := `{"status":"ok","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `"}`
-		w.Write([]byte(callback + "(" + response + ");"))
-	})
 
 	// Add certificate acceptance endpoint for TLS
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -311,11 +205,9 @@ func main() {
     <div class="container">
         <h1 class="success">🔒 Ming-Mong Server</h1>
         <h2>Certificate Accepted Successfully!</h2>
-                                <p class="info">Your browser now trusts this server's certificate.</p>
-                        <p>WebSocket endpoint: <strong>wss://` + r.Host + `/ws</strong></p>
-                        <p>Pixel endpoint: <strong>https://` + r.Host + `/pixel</strong></p>
-                        <p>JSONP endpoint: <strong>https://` + r.Host + `/jsonp</strong></p>
-                        <p>You can now close this tab and use secure connections.</p>
+        <p class="info">Your browser now trusts this server's certificate.</p>
+        <p>WebSocket endpoint: <strong>wss://` + r.Host + `/ws</strong></p>
+        <p>You can now close this tab and use secure WebSocket connections.</p>
         <hr>
         <p><small>This server is running with TLS encryption enabled.</small></p>
     </div>
