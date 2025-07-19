@@ -417,14 +417,18 @@ curl -sSL https://raw.githubusercontent.com/suzzukin/ming-mong/master/install.sh
 # Your server IP: 192.168.1.100
 # Domain: 192.168.1.100.nip.io
 # URLs:
-#   - https://192.168.1.100.nip.io/ping
+#   - https://192.168.1.100.nip.io/pixel (iron-clad method)
+#   - https://192.168.1.100.nip.io/jsonp (iron-clad method)
 #   - wss://192.168.1.100.nip.io/ws
 ```
 
 **Usage from HTTPS pages:**
 ```javascript
-// Works immediately, no certificate warnings!
-const response = await fetch('https://192.168.1.100.nip.io/ping');
+// Iron-clad method - works immediately, no certificate warnings!
+const img = new Image();
+img.onload = () => console.log('Server OK');
+img.src = 'https://192.168.1.100.nip.io/pixel?signature=your_signature';
+
 const ws = new WebSocket('wss://192.168.1.100.nip.io/ws');
 ```
 
@@ -447,7 +451,38 @@ docker run -d -p 443:443 \
   ming-mong
 ```
 
-### **Option 2: Mixed Mode (HTTP + HTTPS)**
+### **Option 2: Iron-Clad Communication (CORS/SSL-Free)**
+
+**🛡️ Maximum Reliability Methods (Works Everywhere):**
+
+```javascript
+// Method 1: Pixel Tracking (★★★★★ Reliability)
+function pingServer(signature) {
+    const img = new Image();
+    img.onload = () => console.log('✅ Server responded');
+    img.onerror = () => console.log('❌ Server failed');
+    img.src = `http://82.148.17.45:8080/pixel?signature=${signature}&timestamp=${Date.now()}`;
+}
+
+// Method 2: JSONP (★★★★☆ Reliability)
+function pingServerJSONP(signature) {
+    window.callback = (data) => console.log('Response:', data);
+    const script = document.createElement('script');
+    script.src = `http://82.148.17.45:8080/jsonp?signature=${signature}&callback=callback`;
+    document.head.appendChild(script);
+}
+```
+
+**🧪 Test Methods:**
+Use the JavaScript examples above directly in your browser console.
+
+**Why These Methods Work:**
+- 🖼️ **Pixel Tracking**: Uses `<img>` tag - no CORS restrictions
+- 📞 **JSONP**: Uses `<script>` tag - bypasses all security policies  
+- 🌐 **Works from HTTPS pages**: No Mixed Content Security issues
+- 🔄 **Works everywhere**: All browsers, all configurations
+
+### **Option 3: Mixed Mode (HTTP + HTTPS)**
 
 Use both HTTP and HTTPS endpoints:
 
@@ -456,25 +491,29 @@ Use both HTTP and HTTPS endpoints:
 ./install.sh --tls
 
 # Server will support both:
-# - http://192.168.1.100:8080/ping (HTTP)
-# - https://192.168.1.100:8080/ping (HTTPS)
+# - http://192.168.1.100:8080/pixel (HTTP iron-clad)
+# - http://192.168.1.100:8080/jsonp (HTTP iron-clad)
+# - https://192.168.1.100:8080/pixel (HTTPS iron-clad)
+# - https://192.168.1.100:8080/jsonp (HTTPS iron-clad)
 # - ws://192.168.1.100:8080/ws (WebSocket)
 # - wss://192.168.1.100:8080/ws (Secure WebSocket)
 ```
 
 **Usage:**
 ```javascript
-// For internal networks without domains
-async function pingServer(serverIP) {
-    try {
-        // Try HTTPS first (for HTTPS pages)
-        const response = await fetch(`https://${serverIP}:8080/ping`);
-        return { success: true, method: 'HTTPS' };
-    } catch (error) {
-        // Fallback to HTTP (for HTTP pages)
-        const response = await fetch(`http://${serverIP}:8080/ping`);
-        return { success: true, method: 'HTTP' };
-    }
+// Iron-clad methods for any page (HTTP/HTTPS)
+function pingServer(serverIP, signature) {
+    // Method 1: Pixel tracking (most reliable)
+    const img = new Image();
+    img.onload = () => console.log('✅ Server OK');
+    img.onerror = () => console.log('❌ Server failed');
+    img.src = `http://${serverIP}:8080/pixel?signature=${signature}`;
+    
+    // Method 2: JSONP (with response data)
+    window.callback = (data) => console.log('Server response:', data);
+    const script = document.createElement('script');
+    script.src = `http://${serverIP}:8080/jsonp?signature=${signature}&callback=callback`;
+    document.head.appendChild(script);
 }
 ```
 

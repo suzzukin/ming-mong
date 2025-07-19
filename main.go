@@ -285,60 +285,6 @@ func main() {
 		w.Write([]byte(callback + "(" + response + ");"))
 	})
 
-	// Add HTTP ping endpoint for non-TLS compatibility
-	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		// Handle CORS preflight request
-		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "X-Ping-Signature")
-			w.Header().Set("Access-Control-Max-Age", "86400")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		// Only allow GET requests
-		if r.Method != http.MethodGet {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Get signature from header
-		signature := r.Header.Get("X-Ping-Signature")
-		if signature == "" {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Validate signature
-		if !isValidSignature(signature) {
-			if hijacker, ok := w.(http.Hijacker); ok {
-				conn, _, err := hijacker.Hijack()
-				if err == nil {
-					conn.Close()
-				}
-			}
-			return
-		}
-
-		// Valid signature - respond with CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
-
 	// Add certificate acceptance endpoint for TLS
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
@@ -361,10 +307,11 @@ func main() {
     <div class="container">
         <h1 class="success">🔒 Ming-Mong Server</h1>
         <h2>Certificate Accepted Successfully!</h2>
-        <p class="info">Your browser now trusts this server's certificate.</p>
-        <p>WebSocket endpoint: <strong>wss://` + r.Host + `/ws</strong></p>
-        <p>HTTP endpoint: <strong>https://` + r.Host + `/ping</strong></p>
-        <p>You can now close this tab and use HTTPS/WSS connections.</p>
+                                <p class="info">Your browser now trusts this server's certificate.</p>
+                        <p>WebSocket endpoint: <strong>wss://` + r.Host + `/ws</strong></p>
+                        <p>Pixel endpoint: <strong>https://` + r.Host + `/pixel</strong></p>
+                        <p>JSONP endpoint: <strong>https://` + r.Host + `/jsonp</strong></p>
+                        <p>You can now close this tab and use secure connections.</p>
         <hr>
         <p><small>This server is running with TLS encryption enabled.</small></p>
     </div>
