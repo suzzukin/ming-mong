@@ -15,7 +15,6 @@ TEMP_DIR="/tmp/ming-mong-$$"
 
 # Parse command line arguments
 PORT=""
-ENABLE_TLS=""
 AUTO_SSL=""
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -23,17 +22,11 @@ while [[ $# -gt 0 ]]; do
             PORT="$2"
             shift 2
             ;;
-        --tls|--ssl)
-            ENABLE_TLS="true"
-            shift
-            ;;
         --auto-ssl)
             AUTO_SSL="true"
-            ENABLE_TLS="true"
             shift
             ;;
-        --no-tls|--no-ssl)
-            ENABLE_TLS="false"
+        --no-ssl)
             AUTO_SSL="false"
             shift
             ;;
@@ -41,12 +34,9 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
             echo "  -p, --port PORT    Set the port to listen on (default: $DEFAULT_PORT)"
-            echo "  --tls, --ssl       Enable TLS/SSL (WSS) with self-signed certificates"
-            echo "  --auto-ssl         Enable TLS with automatic Let's Encrypt certificate via nip.io (default behavior)"
-            echo "  --no-tls, --no-ssl Disable TLS/SSL (plain WS only)"
+            echo "  --auto-ssl         Enable automatic Let's Encrypt certificate via nip.io (default)"
+            echo "  --no-ssl           Disable SSL (plain WebSocket only)"
             echo "  -h, --help         Show this help message"
-            echo ""
-            echo "Note: By default, the server will use automatic Let's Encrypt certificate via nip.io"
             exit 0
             ;;
         *)
@@ -69,9 +59,8 @@ if [ -z "$PORT" ]; then
 fi
 
 # Set auto-SSL as default if not specified
-if [ -z "$ENABLE_TLS" ] && [ -z "$AUTO_SSL" ]; then
+if [ -z "$AUTO_SSL" ]; then
     AUTO_SSL="true"
-    ENABLE_TLS="true"
     echo -e "${GREEN}Using automatic Let's Encrypt certificate via nip.io (default)${NC}"
 fi
 
@@ -153,49 +142,6 @@ free_port() {
 
     echo -e "${GREEN}✓ Port $port is now free${NC}"
     return 0
-}
-
-# Function to create self-signed certificates
-create_self_signed_cert() {
-    local cert_dir="$1"
-    local domain="${2:-localhost}"
-
-    echo -e "${BLUE}Creating self-signed TLS certificate...${NC}"
-
-    # Create certificate directory
-    mkdir -p "$cert_dir"
-
-    # Generate private key
-    openssl genrsa -out "$cert_dir/server.key" 2048 2>/dev/null
-
-    # Generate certificate signing request with SAN
-    openssl req -new -key "$cert_dir/server.key" -out "$cert_dir/server.csr" \
-        -subj "/C=US/ST=State/L=City/O=Organization/CN=$domain" 2>/dev/null
-
-    # Generate self-signed certificate with SAN (Subject Alternative Names)
-    openssl x509 -req -days 365 -in "$cert_dir/server.csr" -signkey "$cert_dir/server.key" \
-        -out "$cert_dir/server.crt" \
-        -extensions v3_req \
-        -extfile <(cat <<EOF
-[v3_req]
-keyUsage = keyEncipherment, dataEncipherment
-extendedKeyUsage = serverAuth
-subjectAltName = @alt_names
-[alt_names]
-DNS.1 = localhost
-DNS.2 = *.localhost
-IP.1 = 127.0.0.1
-IP.2 = ::1
-EOF
-) 2>/dev/null
-
-    # Clean up CSR file
-    rm -f "$cert_dir/server.csr"
-
-    echo -e "${GREEN}✓ Self-signed certificate created for domain: $domain${NC}"
-    echo -e "${GREEN}  Certificate: $cert_dir/server.crt${NC}"
-    echo -e "${GREEN}  Private Key: $cert_dir/server.key${NC}"
-    echo -e "${YELLOW}  Note: Self-signed certificates will show security warnings in browsers${NC}"
 }
 
 # Function to get external IP address
@@ -296,8 +242,6 @@ get_letsencrypt_cert() {
     fi
 
     # Stop any service on port 80 temporarily
-    local port_80_services=""
-    local port_80_pids=""
     local marzban_node_stopped=false
 
     echo -e "${BLUE}Checking port 80...${NC}"
@@ -321,7 +265,6 @@ get_letsencrypt_cert() {
             fi
         fi
     fi
-
 
     # Get certificate using standalone mode with sudo
     local success=false
@@ -415,14 +358,12 @@ run_docker() {
 echo -e "${GREEN}=== Ming-Mong Server Auto-Installer ===${NC}"
 echo -e "${GREEN}Port: $PORT${NC}"
 if [ "$AUTO_SSL" = "true" ]; then
-    echo -e "${GREEN}TLS/SSL: Automatic Let's Encrypt via nip.io (default)${NC}"
+    echo -e "${GREEN}SSL: Automatic Let's Encrypt certificate via nip.io${NC}"
     if [ "$EUID" -ne 0 ]; then
         echo -e "${YELLOW}⚠️  Auto-SSL requires sudo privileges for certbot${NC}"
     fi
-elif [ "$ENABLE_TLS" = "true" ]; then
-    echo -e "${GREEN}TLS/SSL: Self-signed certificates${NC}"
 else
-    echo -e "${GREEN}TLS/SSL: Disabled (WS)${NC}"
+    echo -e "${GREEN}SSL: Disabled (Plain WebSocket)${NC}"
 fi
 echo -e "${YELLOW}Note: This script will automatically stop any processes using port $PORT${NC}"
 
@@ -643,7 +584,7 @@ if ! free_port $PORT; then
     exit 1
 fi
 
-# Prepare TLS certificates if enabled
+# Prepare SSL certificates if enabled
 CERT_DIR=""
 DOCKER_ARGS=""
 DOMAIN=""
@@ -655,9 +596,8 @@ if [ "$AUTO_SSL" = "true" ]; then
 
     if [ -z "$EXTERNAL_IP" ]; then
         echo -e "${RED}Failed to detect external IP address${NC}"
-        echo -e "${YELLOW}Falling back to self-signed certificates...${NC}"
+        echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
         AUTO_SSL="false"
-        ENABLE_TLS="true"
     else
         DOMAIN="$EXTERNAL_IP.nip.io"
         echo -e "${GREEN}External IP: $EXTERNAL_IP${NC}"
@@ -685,30 +625,15 @@ if [ "$AUTO_SSL" = "true" ]; then
                 echo -e "${GREEN}✅ Certificates copied successfully${NC}"
             else
                 echo -e "${RED}Failed to copy Let's Encrypt certificates${NC}"
-                echo -e "${YELLOW}Falling back to self-signed certificates...${NC}"
+                echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
                 AUTO_SSL="false"
-                ENABLE_TLS="true"
             fi
         else
             echo -e "${RED}Failed to get Let's Encrypt certificate${NC}"
-            echo -e "${YELLOW}Falling back to self-signed certificates...${NC}"
+            echo -e "${YELLOW}Falling back to plain WebSocket...${NC}"
             AUTO_SSL="false"
-            ENABLE_TLS="true"
         fi
     fi
-fi
-
-if [ "$ENABLE_TLS" = "true" ] && [ "$AUTO_SSL" != "true" ]; then
-    CERT_DIR="$TEMP_DIR/certs"
-
-    # Create self-signed certificates
-    if ! create_self_signed_cert "$CERT_DIR" "localhost"; then
-        echo -e "${RED}Failed to create TLS certificates!${NC}"
-        exit 1
-    fi
-
-    # Add TLS environment variables and volume mounts for self-signed certs
-    DOCKER_ARGS="-v $CERT_DIR:/app/certs -e ENABLE_TLS=true -e TLS_CERT_FILE=/app/certs/server.crt -e TLS_KEY_FILE=/app/certs/server.key"
 fi
 
 # Run container with specified port
@@ -760,15 +685,11 @@ fi
 echo -e "${GREEN}=== Installation Complete ===${NC}"
 echo -e "${GREEN}WebSocket server is running on port $PORT${NC}"
 
-# Show correct URL based on TLS setting
+# Show correct URL based on SSL setting
 if [ "$AUTO_SSL" = "true" ] && [ -n "$DOMAIN" ]; then
     echo -e "${GREEN}WebSocket URL: wss://$DOMAIN:$PORT/ws${NC}"
     echo -e "${GREEN}Security: Let's Encrypt certificate (trusted by browsers)${NC}"
     echo -e "${GREEN}✅ No certificate warnings - ready for production!${NC}"
-elif [ "$ENABLE_TLS" = "true" ]; then
-    echo -e "${GREEN}WebSocket URL: wss://$SERVER_IP:$PORT/ws${NC}"
-    echo -e "${GREEN}Security: Self-signed certificate${NC}"
-    echo -e "${YELLOW}Note: Self-signed certificate will show security warnings in browsers${NC}"
 else
     echo -e "${GREEN}WebSocket URL: ws://$SERVER_IP:$PORT/ws${NC}"
     echo -e "${GREEN}Security: Plain WebSocket (WS)${NC}"
@@ -787,15 +708,11 @@ if run_docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q "^${CONTAINE
     echo -e "${YELLOW}Try connecting to the WebSocket server:${NC}"
     echo -e "${YELLOW}Install wscat: npm install -g wscat${NC}"
 
-    # Show correct connection examples based on TLS
+    # Show correct connection examples based on SSL
     if [ "$AUTO_SSL" = "true" ] && [ -n "$DOMAIN" ]; then
         echo -e "${YELLOW}Connect: wscat -c wss://$DOMAIN:$PORT/ws${NC}"
         echo -e "${YELLOW}Note: Trusted certificate - no --no-check needed!${NC}"
         WS_URL="wss://$DOMAIN:$PORT/ws"
-    elif [ "$ENABLE_TLS" = "true" ]; then
-        echo -e "${YELLOW}Connect: wscat -c wss://$SERVER_IP:$PORT/ws${NC}"
-        echo -e "${YELLOW}Note: Use --no-check for self-signed certificates: wscat -c wss://$SERVER_IP:$PORT/ws --no-check${NC}"
-        WS_URL="wss://$SERVER_IP:$PORT/ws"
     else
         echo -e "${YELLOW}Connect: wscat -c ws://$SERVER_IP:$PORT/ws${NC}"
         WS_URL="ws://$SERVER_IP:$PORT/ws"
@@ -833,4 +750,5 @@ else
     echo -e "${YELLOW}- Try a different port: $0 -p <different-port>${NC}"
     echo -e "${YELLOW}- Check Docker status: $DOCKER_CMD ps -a${NC}"
     echo -e "${YELLOW}- Manually free port: kill -9 \$(lsof -ti :$PORT)${NC}"
+fi
 fi

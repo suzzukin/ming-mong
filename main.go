@@ -35,9 +35,6 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// Global variable for TLS state
-var useTLS bool
-
 func generateSignature(date string) string {
 	data := date + "ming-mong-server"
 	hash := sha256.Sum256([]byte(data))
@@ -186,6 +183,20 @@ func main() {
 	// Add certificate acceptance endpoint for TLS
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
+			// Determine if TLS is enabled
+			useTLS := false
+			if enableTLS == "true" || enableTLS == "1" || enableTLS == "yes" {
+				useTLS = true
+			}
+			// Auto-detect TLS if cert files are provided
+			if certFile != "" && keyFile != "" {
+				if _, err := os.Stat(certFile); err == nil {
+					if _, err := os.Stat(keyFile); err == nil {
+						useTLS = true
+					}
+				}
+			}
+
 			// If TLS is enabled, serve a simple page for certificate acceptance
 			if useTLS {
 				w.Header().Set("Content-Type", "text/html")
@@ -227,7 +238,7 @@ func main() {
 	})
 
 	// Determine if we should use TLS
-	useTLS = false
+	useTLS := false
 	if enableTLS == "true" || enableTLS == "1" || enableTLS == "yes" {
 		useTLS = true
 	}
@@ -271,7 +282,6 @@ func main() {
 		log.Printf("TLS disabled - using plain HTTP")
 		log.Printf("WebSocket endpoint: ws://localhost:%s/ws", port)
 		log.Printf("Security: Plain WebSocket connections (WS)")
-		log.Printf("Note: For production use, enable TLS with ENABLE_TLS=true")
 
 		if err := http.ListenAndServe(":"+port, nil); err != nil {
 			log.Fatalf("HTTP server failed to start: %v", err)
