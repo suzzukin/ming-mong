@@ -8,7 +8,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default values
-DEFAULT_PORT=8080
+DEFAULT_PORT=8443
 IMAGE_NAME="ming-mong"
 CONTAINER_NAME="ming-mong-server"
 TEMP_DIR="/tmp/ming-mong-$$"
