@@ -302,7 +302,6 @@ get_letsencrypt_cert() {
 
     echo -e "${BLUE}Checking port 80...${NC}"
     echo -e "${YELLOW}ℹ️  Port 80 is needed temporarily for SSL certificate issuance${NC}"
-    echo -e "${YELLOW}ℹ️  Any services using port 80 will be stopped and restarted automatically${NC}"
 
     # Check if marzban-node is running and can be stopped
     if command -v marzban-node &> /dev/null; then
