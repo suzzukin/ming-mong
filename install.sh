@@ -366,25 +366,15 @@ get_letsencrypt_cert() {
         echo -e "${BLUE}Restarting marzban-node in background...${NC}"
         sleep 2  # Wait a bit before restart
         
-        # Start marzban-node with timeout to avoid hanging
-        echo -e "${YELLOW}Starting marzban-node with 30 second timeout...${NC}"
-        (
-            timeout 30 sudo marzban-node up -d &>/dev/null
-            exit_code=$?
-            if [ $exit_code -eq 0 ]; then
-                echo -e "${GREEN}✅ marzban-node restarted successfully${NC}" >&2
-            elif [ $exit_code -eq 124 ]; then
-                echo -e "${YELLOW}⏰ marzban-node restart timed out${NC}" >&2
-            else
-                echo -e "${YELLOW}❌ marzban-node restart failed${NC}" >&2
-            fi
-        ) &
+        # Start marzban-node in true background mode to avoid hanging
+        echo -e "${BLUE}Returning control to marzban-node...${NC}"
         
-        # Don't wait for the background process, continue immediately
-        sleep 1
+        # Launch restart command in background and detach completely
+        nohup sudo marzban-node up -d >/dev/null 2>&1 &
+        
         echo -e "${GREEN}🔧 Port 80 has been returned to marzban-node${NC}"
-        echo -e "${BLUE}📝 marzban-node is restarting in background...${NC}"
-        echo -e "${YELLOW}💡 If needed, you can manually restart later with: sudo marzban-node up -d${NC}"
+        echo -e "${GREEN}📝 marzban-node restart initiated in background${NC}"
+        echo -e "${BLUE}💡 Note: marzban-node is starting up - this may take a moment${NC}"
     fi
 
     if [ "$success" = true ]; then
@@ -873,5 +863,4 @@ else
     echo -e "${YELLOW}- Try a different port: $0 -p <different-port>${NC}"
     echo -e "${YELLOW}- Check Docker status: $DOCKER_CMD ps -a${NC}"
     echo -e "${YELLOW}- Manually free port: kill -9 \$(lsof -ti :$PORT)${NC}"
-fi
 fi
